@@ -547,12 +547,25 @@ STRICT RULES:
 }
 
 // ── Build the feed (incremental) ────────────────────────────
+let feedBuildPromise = null;
+
 async function buildFeed() {
-  if (feedBuildInProgress) {
-    console.log('Feed build already in progress, skipping');
-    return memoryFeedCache ? memoryFeedCache.cards : [];
+  // If already building, wait for the existing build to finish
+  if (feedBuildInProgress && feedBuildPromise) {
+    console.log('Feed build already in progress, waiting...');
+    return feedBuildPromise;
   }
   feedBuildInProgress = true;
+
+  feedBuildPromise = _buildFeedInner();
+  try {
+    return await feedBuildPromise;
+  } finally {
+    feedBuildPromise = null;
+  }
+}
+
+async function _buildFeedInner() {
 
   try {
     // 1. Check DB for existing cards first

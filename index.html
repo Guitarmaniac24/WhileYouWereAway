@@ -674,43 +674,48 @@ async function loadFeed() {
     document.getElementById('skeleton').style.display = 'flex';
   }, 300);
 
-  try {
-    var resp = await fetch('/api/feed');
-    var data = await resp.json();
-    clearTimeout(skeletonTimer);
+  var maxRetries = 30;
+  var retryDelay = 4000;
 
-    if (data.timestamp) lastTimestamp = data.timestamp;
+  for (var attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      var resp = await fetch('/api/feed');
+      var data = await resp.json();
 
-    if (data.cards && data.cards.length > 0) {
-      showFeed(data.cards);
+      if (data.timestamp) lastTimestamp = data.timestamp;
 
-      if (data.cached) {
-        metaEl.textContent = "Showing today's feed — checking for updates...";
-        pollForUpdates();
-      } else {
-        metaEl.textContent = 'Updated just now';
+      if (data.cards && data.cards.length > 0) {
+        clearTimeout(skeletonTimer);
+        showFeed(data.cards);
+
+        if (data.cached) {
+          metaEl.textContent = "Showing today's feed — checking for updates...";
+          pollForUpdates();
+        } else {
+          metaEl.textContent = 'Updated just now';
+        }
+        return;
       }
-    } else {
-      loadingEl.querySelector('p').innerHTML =
-        'Building your feed for the first time<span class="dot">.</span><span class="dot">.</span><span class="dot">.</span>';
-      document.getElementById('skeleton').style.display = 'flex';
 
-      var freshResp = await fetch('/api/feed');
-      var freshData = await freshResp.json();
-      if (freshData.timestamp) lastTimestamp = freshData.timestamp;
-      loadingEl.style.display = 'none';
-      if (freshData.cards && freshData.cards.length > 0) {
-        showFeed(freshData.cards);
-        metaEl.textContent = 'Updated just now';
-      } else {
-        metaEl.textContent = 'No feed data available. Try refreshing.';
+      // No cards yet — server is still building
+      if (attempt === 0) {
+        loadingEl.querySelector('p').innerHTML =
+          'Building your feed<span class="dot">.</span><span class="dot">.</span><span class="dot">.</span>';
+        document.getElementById('skeleton').style.display = 'flex';
       }
+      metaEl.textContent = 'Scanning ' + ACCOUNTS_COUNT + ' accounts — hang tight...';
+
+    } catch (err) {
+      console.error('Feed fetch error:', err);
     }
-  } catch (err) {
-    clearTimeout(skeletonTimer);
-    console.error(err);
-    loadingEl.innerHTML = '<p style="color:#999">Failed to load feed.</p>';
+
+    // Wait before retrying
+    await new Promise(function(r) { setTimeout(r, retryDelay); });
   }
+
+  // Exhausted retries
+  clearTimeout(skeletonTimer);
+  loadingEl.innerHTML = '<p style="color:#999">Feed is still building. Refresh in a minute.</p>';
 }
 
 loadFeed();
