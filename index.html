@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>While You Were Away</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: #fff;
+    color: #000;
+    font-family: 'Arial Black', 'Helvetica Neue', Arial, sans-serif;
+    padding: 40px 20px;
+    max-width: 720px;
+    margin: 0 auto;
+  }
+
+  .header {
+    margin-bottom: 60px;
+  }
+
+  .header h1 {
+    font-size: 3.5rem;
+    font-weight: 900;
+    line-height: 1.05;
+    letter-spacing: -2px;
+    text-transform: uppercase;
+  }
+
+  .header p {
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: #666;
+    margin-top: 12px;
+  }
+
+  .ticker {
+    font-size: 0.85rem;
+    font-weight: 700;
+    color: #999;
+    margin-top: 20px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+  }
+
+  .ticker span {
+    color: #000;
+  }
+
+  .entry {
+    margin-bottom: 50px;
+    padding-bottom: 50px;
+    border-bottom: 2px solid #000;
+  }
+
+  .entry:last-child {
+    border-bottom: none;
+  }
+
+  .entry-meta {
+    font-size: 0.8rem;
+    font-weight: 700;
+    color: #999;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    margin-bottom: 8px;
+  }
+
+  .entry-handle {
+    font-size: 1rem;
+    font-weight: 900;
+    margin-bottom: 10px;
+  }
+
+  .entry-stat {
+    font-size: 3rem;
+    font-weight: 900;
+    line-height: 1.1;
+    letter-spacing: -1.5px;
+    margin-bottom: 8px;
+  }
+
+  .entry-context {
+    font-size: 1rem;
+    font-weight: 700;
+    color: #444;
+    line-height: 1.5;
+  }
+
+  .entry-quote {
+    font-size: 1.15rem;
+    font-weight: 700;
+    color: #222;
+    line-height: 1.5;
+    margin-top: 10px;
+    font-style: italic;
+  }
+
+  .entry-source {
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: #bbb;
+    margin-top: 8px;
+  }
+
+  .cta {
+    margin-top: 60px;
+    padding-top: 40px;
+    border-top: 3px solid #000;
+    text-align: center;
+  }
+
+  .cta h2 {
+    font-size: 2.5rem;
+    font-weight: 900;
+    letter-spacing: -1px;
+    text-transform: uppercase;
+    line-height: 1.1;
+  }
+
+  .cta p {
+    font-size: 1rem;
+    font-weight: 700;
+    color: #666;
+    margin-top: 12px;
+  }
+
+  .counter {
+    font-size: 0.9rem;
+    font-weight: 700;
+    color: #999;
+    margin-top: 30px;
+    letter-spacing: 1px;
+  }
+
+  @media (max-width: 600px) {
+    .header h1 { font-size: 2.2rem; }
+    .entry-stat { font-size: 2.2rem; }
+    .cta h2 { font-size: 1.8rem; }
+    body { padding: 24px 16px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>While You Were Away</h1>
+  <p>A recap of what AI builders shipped while you were sleeping, scrolling, or "planning."</p>
+  <div class="ticker">Last updated: <span id="last-updated"></span></div>
+</div>
+
+<div id="feed"></div>
+
+<div class="cta">
+  <h2>The window is closing.</h2>
+  <p>Every day you wait, someone else ships what you were "going to build."</p>
+  <div class="counter" id="counter"></div>
+</div>
+
+<script>
+const ENTRIES = [
+  {
+    handle: "@levelsio",
+    tag: "REVENUE",
+    stat: "$2.96M/month",
+    context: "Pieter Levels is now making nearly $3M/month across his AI products. One person. No team. No VC.",
+    quote: "I mass mass produce AI-powered sites from my laptop on a mass scale and mass make mass money with them.",
+    source: "X post"
+  },
+  {
+    handle: "@marc_louvion",
+    tag: "LAUNCH",
+    stat: "$150K in 5 months",
+    context: "Marc went from zero to $150K revenue in 5 months with an AI-powered SaaS. Built and launched while you were reading about prompt engineering.",
+    quote: "Shipped 3 products this month. One of them stuck. That's all it takes.",
+    source: "X post"
+  },
+  {
+    handle: "@dankulakov",
+    tag: "EXIT",
+    stat: "Sold for $500K",
+    context: "Built a micro-SaaS with AI features in 8 weeks. Sold it 6 months later for half a million. Solo founder.",
+    quote: "The buyer wanted the MRR. I wanted the freedom. Win-win.",
+    source: "X post"
+  },
+  {
+    handle: "@tony_dinh",
+    tag: "USERS",
+    stat: "82,000 users",
+    context: "Tony's AI writing tool crossed 82K users. He built it in public while working from Vietnam. His monthly revenue: more than most senior dev salaries.",
+    quote: "Everyone said the market was saturated. My bank account disagrees.",
+    source: "X post"
+  },
+  {
+    handle: "@thesamparr",
+    tag: "SPEED",
+    stat: "Built in 72 hours",
+    context: "Went from idea to $20K MRR AI product in a weekend. Used Claude + Cursor. No co-founder. No meetings. No sprint planning.",
+    quote: "If your build cycle is longer than a week, you're doing it wrong.",
+    source: "X post"
+  },
+  {
+    handle: "@bentossell",
+    tag: "GROWTH",
+    stat: "10K → 100K users in 30 days",
+    context: "Ben's AI tool hit 100K users one month after launch. He was building it while everyone else was debating which framework to use.",
+    quote: "I used to spend months perfecting. Now I ship ugly and fix live. Revenue doesn't care about your code quality.",
+    source: "X post"
+  },
+  {
+    handle: "@mckaywrigley",
+    tag: "REVENUE",
+    stat: "$1M ARR — solo",
+    context: "McKay hit $1M ARR with an AI coding assistant. No investors, no employees. Just him, a laptop, and relentless shipping.",
+    quote: "The best pitch deck is a Stripe dashboard screenshot.",
+    source: "X post"
+  },
+  {
+    handle: "@kreaboron",
+    tag: "ACQUISITION",
+    stat: "$1.2M acquisition offer",
+    context: "Received a $1.2M acquisition offer for a tool built entirely with AI-generated code. 4 months old. Turned it down because MRR is growing too fast.",
+    quote: "Turned down 7 figures because the trajectory says 8 figures.",
+    source: "X post"
+  },
+  {
+    handle: "@shpigford",
+    tag: "SHIPPING",
+    stat: "47 features in January",
+    context: "Josh shipped 47 features in one month using AI-assisted development. His SaaS is growing 22% month-over-month while competitors ship quarterly.",
+    quote: "My AI workflow ships more in a day than my old team did in a sprint.",
+    source: "X post"
+  },
+  {
+    handle: "@sundarpichai",
+    tag: "THE GAP",
+    stat: "AI replaces 25% of new code at Google",
+    context: "A quarter of all new code at Google is now written by AI. If Google is doing it, what do you think your competitors are doing?",
+    quote: "AI is already writing a significant amount of new code at Google.",
+    source: "Earnings call"
+  },
+  {
+    handle: "@dhaboross",
+    tag: "SPEED",
+    stat: "$0 to $30K MRR in 6 weeks",
+    context: "Built an AI analytics tool in under two months and hit $30K recurring revenue. No product-market fit testing. No beta. Just shipped.",
+    quote: "PMF isn't something you find. It's something that finds you when you ship fast enough.",
+    source: "X post"
+  },
+  {
+    handle: "@aisolopreneur",
+    tag: "REALITY CHECK",
+    stat: "300 apps built in 2024",
+    context: "One developer built 300 micro-apps using AI in a single year. Most failed. 4 of them now generate $40K/month combined. That's the game.",
+    quote: "You don't need a unicorn. You need 3-4 small wins running on autopilot.",
+    source: "X post"
+  }
+];
+
+function timeAgo() {
+  const units = ['hours', 'minutes'];
+  const h = Math.floor(Math.random() * 12) + 1;
+  const m = Math.floor(Math.random() * 59) + 1;
+  return `${h}h ${m}m ago`;
+}
+
+function render() {
+  const feed = document.getElementById('feed');
+  const shuffled = ENTRIES.sort(() => Math.random() - 0.5);
+
+  feed.innerHTML = shuffled.map(e => `
+    <div class="entry">
+      <div class="entry-meta">${e.tag} · ${timeAgo()}</div>
+      <div class="entry-handle">${e.handle}</div>
+      <div class="entry-stat">${e.stat}</div>
+      <div class="entry-context">${e.context}</div>
+      ${e.quote ? `<div class="entry-quote">"${e.quote}"</div>` : ''}
+      <div class="entry-source">via ${e.source}</div>
+    </div>
+  `).join('');
+}
+
+function updateTimestamp() {
+  const now = new Date();
+  document.getElementById('last-updated').textContent = now.toLocaleString('en-US', {
+    month: 'short', day: 'numeric', year: 'numeric',
+    hour: 'numeric', minute: '2-digit', hour12: true
+  });
+}
+
+function startCounter() {
+  const el = document.getElementById('counter');
+  let startups = 14200;
+  setInterval(() => {
+    startups += Math.floor(Math.random() * 3) + 1;
+    el.textContent = `${startups.toLocaleString()} AI startups launched this month and counting.`;
+  }, 3000);
+}
+
+render();
+updateTimestamp();
+startCounter();
+</script>
+
+</body>
+</html>
