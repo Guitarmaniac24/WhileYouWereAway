@@ -4,6 +4,25 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>WhileYouWereSleeping.lol</title>
+<meta name="description" content="A daily recap of AI builders making real money while you were sleeping. Revenue numbers, acquisitions, and paying customers.">
+
+<!-- Open Graph -->
+<meta property="og:title" content="While You Were Sleeping">
+<meta property="og:description" content="They shipped. You slept. Let's see the damage. A daily recap of AI builders making real money.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://whileyouweresleeping.lol">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="While You Were Sleeping">
+<meta name="twitter:description" content="They shipped. You slept. Let's see the damage.">
+
+<!-- Favicon -->
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💸</text></svg>">
+
+<!-- DNS prefetch for avatar domains -->
+<link rel="dns-prefetch" href="https://unavatar.io">
+<link rel="dns-prefetch" href="https://pbs.twimg.com">
+<link rel="preconnect" href="https://pbs.twimg.com" crossorigin>
+
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -14,7 +33,6 @@
     min-height: 100vh;
   }
 
-  /* ── Layout shell ──────────────────────────────────────── */
   .page {
     max-width: 1200px;
     margin: 0 auto;
@@ -104,7 +122,7 @@
     text-decoration: underline;
   }
 
-  /* ── Loading ───────────────────────────────────────────── */
+  /* ── Loading / Skeleton ────────────────────────────────── */
   .loading {
     padding: 80px 0;
     text-align: center;
@@ -130,6 +148,49 @@
     40% { opacity: 1; }
   }
 
+  .skeleton {
+    display: none;
+    flex-direction: column;
+    gap: 0;
+  }
+
+  .skeleton-card {
+    padding: 24px 0;
+    border-bottom: 1px solid #e0e0e0;
+    display: flex;
+    gap: 14px;
+  }
+
+  .skeleton-avatar {
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    background: linear-gradient(90deg, #eee 25%, #f5f5f5 50%, #eee 75%);
+    background-size: 200% 100%;
+    animation: shimmer 1.5s infinite;
+    flex-shrink: 0;
+  }
+
+  .skeleton-body { flex: 1; }
+
+  .skeleton-line {
+    height: 14px;
+    background: linear-gradient(90deg, #eee 25%, #f5f5f5 50%, #eee 75%);
+    background-size: 200% 100%;
+    animation: shimmer 1.5s infinite;
+    border-radius: 4px;
+    margin-bottom: 10px;
+  }
+
+  .skeleton-line.short { width: 40%; }
+  .skeleton-line.medium { width: 70%; }
+  .skeleton-line.long { width: 90%; height: 22px; }
+
+  @keyframes shimmer {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+  }
+
   /* ── Content area: feed + sidebar ──────────────────────── */
   .content {
     display: grid;
@@ -138,7 +199,6 @@
     align-items: start;
   }
 
-  /* ── Feed column ───────────────────────────────────────── */
   .feed {
     display: flex;
     flex-direction: column;
@@ -154,6 +214,14 @@
     opacity: 0;
     transform: translateY(12px);
     animation: cardIn 0.35s ease forwards;
+    cursor: pointer;
+    text-decoration: none;
+    color: inherit;
+    transition: background 0.15s ease;
+  }
+
+  .card:hover {
+    background: #fafafa;
   }
 
   .card:first-child {
@@ -221,7 +289,6 @@
   .card.lg .card-time-ago { font-size: 1.8rem; }
   .card.md .card-time-ago { font-size: 1.6rem; }
 
-  /* Summary text — scales with score tier */
   .card-summary {
     font-weight: 900;
     line-height: 1.2;
@@ -289,7 +356,6 @@
     margin-top: 4px;
   }
 
-  /* Inline ad (inserted into feed on mobile) */
   .ad-inline {
     padding: 24px 0;
     border-bottom: 1px solid #e0e0e0;
@@ -371,7 +437,6 @@
   /* ── Mobile ────────────────────────────────────────────── */
   @media (max-width: 700px) {
     body { padding: 0; }
-
     .page { padding: 0 16px; }
 
     .header {
@@ -400,7 +465,6 @@
       grid-template-columns: 1fr;
     }
 
-    /* Hide sidebar on mobile — ad goes inline instead */
     .sidebar { display: none; }
     .ad-inline { display: block; }
 
@@ -413,6 +477,8 @@
     .card.xl .card-time-ago, .card.lg .card-time-ago { font-size: 1.4rem; }
 
     .footer { padding: 28px 0 48px; margin-top: 32px; }
+
+    .skeleton-avatar { width: 36px; height: 36px; }
   }
 
   /* Desktop: hide inline ad */
@@ -431,7 +497,7 @@
   </div>
 
   <div class="hero">
-    <img class="hero-avatar" src="https://unavatar.io/x/MTLFORBRKFST" alt="@MTLFORBRKFST" loading="lazy">
+    <img class="hero-avatar" src="https://unavatar.io/x/MTLFORBRKFST" alt="@MTLFORBRKFST" loading="eager">
     <div class="hero-text">
       <div class="hero-tagline">They shipped. You slept. Let's see the damage.</div>
       <div class="hero-credit">curated by <a href="https://x.com/MTLFORBRKFST" target="_blank" rel="noopener">@MTLFORBRKFST</a></div>
@@ -440,6 +506,12 @@
 
   <div class="loading" id="loading">
     <p>Scanning timelines<span class="dot">.</span><span class="dot">.</span><span class="dot">.</span></p>
+    <div class="skeleton" id="skeleton">
+      <div class="skeleton-card"><div class="skeleton-avatar"></div><div class="skeleton-body"><div class="skeleton-line short"></div><div class="skeleton-line long"></div><div class="skeleton-line medium"></div></div></div>
+      <div class="skeleton-card"><div class="skeleton-avatar"></div><div class="skeleton-body"><div class="skeleton-line short"></div><div class="skeleton-line long"></div><div class="skeleton-line medium"></div></div></div>
+      <div class="skeleton-card"><div class="skeleton-avatar"></div><div class="skeleton-body"><div class="skeleton-line short"></div><div class="skeleton-line long"></div><div class="skeleton-line medium"></div></div></div>
+      <div class="skeleton-card"><div class="skeleton-avatar"></div><div class="skeleton-body"><div class="skeleton-line short"></div><div class="skeleton-line long"></div><div class="skeleton-line medium"></div></div></div>
+    </div>
   </div>
 
   <div class="content" id="content" style="display:none;">
@@ -492,70 +564,69 @@ function tier(score) {
   return 'sm';
 }
 
-// Highlight money amounts in green
 function highlightMoney(text) {
   return text.replace(/(\$[\d,.]+[KkMm]?(?:\/mo(?:nth)?|\/yr|\/year|\/day)?|\d+[KkMm]\s*(?:MRR|ARR))/g,
     '<span class="money">$1</span>');
 }
 
-// Sort cards by date descending (most recent first)
+function escapeHtml(str) {
+  return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
 function sortByDate(cards) {
   return [...cards].sort((a, b) => new Date(b.date) - new Date(a.date));
 }
 
 const shownIds = new Set();
-const AD_INSERT_AFTER = 3; // Insert inline ad after this many cards
+const AD_INSERT_AFTER = 3;
 
 function renderCards(cards, animate) {
   const feed = document.getElementById('feed');
   const sorted = sortByDate(cards);
   let rendered = 0;
 
-  sorted.forEach((card, i) => {
+  sorted.forEach((card) => {
     if (shownIds.has(card.id)) return;
     shownIds.add(card.id);
 
-    // Insert inline ad after Nth card (mobile only, shown via CSS)
     if (rendered === AD_INSERT_AFTER) {
       const adEl = document.createElement('div');
       adEl.className = 'ad-inline';
-      adEl.innerHTML = `
-        <div class="ad-slot">
-          <div class="ad-label">Advertisement</div>
-          <div class="ad-cta">Your ad here. Reach AI builders.</div>
-          <div class="ad-link">whileyouweresleeping.lol/advertise</div>
-        </div>
-      `;
+      adEl.innerHTML = '<div class="ad-slot"><div class="ad-label">Advertisement</div><div class="ad-cta">Your ad here. Reach AI builders.</div><div class="ad-link">whileyouweresleeping.lol/advertise</div></div>';
       feed.appendChild(adEl);
     }
 
     const t = tier(card.score);
-    const el = document.createElement('div');
+    const el = document.createElement('a');
     el.className = 'card ' + t;
+    el.href = 'https://x.com/' + encodeURIComponent(card.handle) + '/status/' + encodeURIComponent(card.id);
+    el.target = '_blank';
+    el.rel = 'noopener';
     el.style.animationDelay = (rendered * (animate ? 0.08 : 0.04)) + 's';
 
     const timeAgo = formatDate(card.date);
+    const safeName = escapeHtml(card.name);
+    const safeHandle = escapeHtml(card.handle);
 
-    el.innerHTML = `
-      <div class="card-avatar-col">
-        ${card.avatar
-          ? `<img class="card-avatar" src="${card.avatar}" alt="" loading="lazy" onerror="this.style.display='none'">`
-          : '<div class="card-avatar"></div>'}
-      </div>
-      <div class="card-body">
-        <div class="card-author-row">
-          <div class="card-name">${card.name}</div>
-          <div class="card-handle">@${card.handle}</div>
-        </div>
-        <div class="card-time-ago">${timeAgo}</div>
-        <div class="card-summary">${highlightMoney(card.summary)}</div>
-        <div class="card-stats">
-          <span>${formatNum(card.likes)} likes</span>
-          <span>${formatNum(card.views)} views</span>
-          <span>${formatNum(card.bookmarks)} saves</span>
-        </div>
-      </div>
-    `;
+    el.innerHTML =
+      '<div class="card-avatar-col">' +
+        (card.avatar
+          ? '<img class="card-avatar" src="' + escapeHtml(card.avatar) + '" alt="" loading="lazy" onerror="this.style.display=\'none\'">'
+          : '<div class="card-avatar"></div>') +
+      '</div>' +
+      '<div class="card-body">' +
+        '<div class="card-author-row">' +
+          '<div class="card-name">' + safeName + '</div>' +
+          '<div class="card-handle">@' + safeHandle + '</div>' +
+        '</div>' +
+        '<div class="card-time-ago">' + timeAgo + '</div>' +
+        '<div class="card-summary">' + highlightMoney(card.summary) + '</div>' +
+        '<div class="card-stats">' +
+          '<span>' + formatNum(card.likes) + ' likes</span>' +
+          '<span>' + formatNum(card.views) + ' views</span>' +
+          '<span>' + formatNum(card.bookmarks) + ' saves</span>' +
+        '</div>' +
+      '</div>';
 
     feed.appendChild(el);
     rendered++;
@@ -565,29 +636,27 @@ function renderCards(cards, animate) {
 let lastTimestamp = 0;
 
 function showFeed(cards) {
-  const loadingEl = document.getElementById('loading');
-  const contentEl = document.getElementById('content');
-  const footerEl = document.getElementById('footer');
-
-  loadingEl.style.display = 'none';
-  contentEl.style.display = 'grid';
+  document.getElementById('loading').style.display = 'none';
+  document.getElementById('content').style.display = 'grid';
   renderCards(cards, false);
-  footerEl.style.display = 'block';
+  document.getElementById('footer').style.display = 'block';
   document.getElementById('count').textContent =
-    `${cards.length} revenue moments captured from 90 builders.`;
+    cards.length + ' revenue moments captured from ' + ACCOUNTS_COUNT + ' builders.';
 }
 
+const ACCOUNTS_COUNT = 90;
+
 async function pollForUpdates() {
-  const metaEl = document.getElementById('meta');
+  var metaEl = document.getElementById('meta');
   try {
     metaEl.textContent = 'Checking for updates...';
-    const resp = await fetch('/api/refresh');
-    const data = await resp.json();
+    var resp = await fetch('/api/refresh');
+    var data = await resp.json();
     if (data.timestamp) lastTimestamp = data.timestamp;
     if (data.cards && data.cards.length > 0) {
       renderCards(data.cards, true);
       document.getElementById('count').textContent =
-        `${shownIds.size} revenue moments captured from 90 builders.`;
+        shownIds.size + ' revenue moments captured from ' + ACCOUNTS_COUNT + ' builders.';
     }
     metaEl.textContent = 'Updated just now';
   } catch (err) {
@@ -597,12 +666,19 @@ async function pollForUpdates() {
 }
 
 async function loadFeed() {
-  const loadingEl = document.getElementById('loading');
-  const metaEl = document.getElementById('meta');
+  var loadingEl = document.getElementById('loading');
+  var metaEl = document.getElementById('meta');
+
+  // Show skeleton after 300ms if still loading
+  var skeletonTimer = setTimeout(function() {
+    document.getElementById('skeleton').style.display = 'flex';
+  }, 300);
 
   try {
-    const resp = await fetch('/api/feed');
-    const data = await resp.json();
+    var resp = await fetch('/api/feed');
+    var data = await resp.json();
+    clearTimeout(skeletonTimer);
+
     if (data.timestamp) lastTimestamp = data.timestamp;
 
     if (data.cards && data.cards.length > 0) {
@@ -617,8 +693,10 @@ async function loadFeed() {
     } else {
       loadingEl.querySelector('p').innerHTML =
         'Building your feed for the first time<span class="dot">.</span><span class="dot">.</span><span class="dot">.</span>';
-      const freshResp = await fetch('/api/feed');
-      const freshData = await freshResp.json();
+      document.getElementById('skeleton').style.display = 'flex';
+
+      var freshResp = await fetch('/api/feed');
+      var freshData = await freshResp.json();
       if (freshData.timestamp) lastTimestamp = freshData.timestamp;
       loadingEl.style.display = 'none';
       if (freshData.cards && freshData.cards.length > 0) {
@@ -629,6 +707,7 @@ async function loadFeed() {
       }
     }
   } catch (err) {
+    clearTimeout(skeletonTimer);
     console.error(err);
     loadingEl.innerHTML = '<p style="color:#999">Failed to load feed.</p>';
   }
