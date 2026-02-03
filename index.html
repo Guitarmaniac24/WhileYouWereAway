@@ -3,17 +3,17 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>WhileYouWereSleeping.lol</title>
-<meta name="description" content="A daily recap of AI builders making real money while you were sleeping. Revenue numbers, acquisitions, and paying customers.">
+<title>WhileYouSlept.lol</title>
+<meta name="description" content="A daily recap of AI builders making real money while you slept. Revenue numbers, acquisitions, and paying customers.">
 
 <!-- Open Graph -->
-<meta property="og:title" content="While You Were Sleeping">
-<meta property="og:description" content="They shipped. You slept. Let's see the damage. A daily recap of AI builders making real money.">
+<meta property="og:title" content="While You Slept">
+<meta property="og:description" content="They shipped. You slept. Here's the damage. A daily recap of AI builders making real money.">
 <meta property="og:type" content="website">
-<meta property="og:url" content="https://whileyouweresleeping.lol">
+<meta property="og:url" content="https://whileyouslept.lol">
 <meta name="twitter:card" content="summary">
-<meta name="twitter:title" content="While You Were Sleeping">
-<meta name="twitter:description" content="They shipped. You slept. Let's see the damage.">
+<meta name="twitter:title" content="While You Slept">
+<meta name="twitter:description" content="They shipped. You slept. Here's the damage.">
 
 <!-- Favicon -->
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💸</text></svg>">
@@ -41,87 +41,70 @@
 
   /* ── Header ────────────────────────────────────────────── */
   .header {
-    padding: 48px 0 32px;
+    padding: 32px 0 28px;
     border-bottom: 3px solid #000;
-    margin-bottom: 32px;
+    margin-bottom: 0;
+    text-align: center;
   }
 
   .header h1 {
     font-family: 'Arial Black', 'Helvetica Neue', Arial, sans-serif;
-    font-size: clamp(2.2rem, 6vw, 4rem);
+    font-size: clamp(1.8rem, 5vw, 3.2rem);
     font-weight: 900;
-    line-height: 1;
-    letter-spacing: -2.5px;
+    line-height: 1.1;
+    letter-spacing: -2px;
     text-transform: uppercase;
     color: #000;
   }
 
+  .header h1 .cash-inline {
+    color: #16a34a;
+  }
+
   .header .sub {
-    font-size: clamp(0.85rem, 2vw, 1.05rem);
+    font-size: clamp(0.8rem, 2vw, 0.95rem);
     font-weight: 600;
-    color: #666;
-    margin-top: 10px;
+    color: #999;
+    margin-top: 6px;
     line-height: 1.5;
   }
 
   .header-credit {
-    display: flex;
+    display: inline-flex;
     align-items: center;
-    gap: 10px;
-    margin-top: 14px;
-  }
-
-  .header-credit img {
-    width: 28px;
-    height: 28px;
-    border-radius: 50%;
-    border: 2px solid #000;
-  }
-
-  .header-credit span {
+    gap: 4px;
+    margin-top: 12px;
+    flex-wrap: wrap;
+    justify-content: center;
     font-size: 0.7rem;
     font-weight: 600;
     color: #999;
+  }
+
+  .header-credit img {
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    vertical-align: middle;
+  }
+
+  .header-credit .credit-logo {
+    border-radius: 4px;
   }
 
   .header-credit a {
     color: #000;
     font-weight: 700;
     text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
   }
 
   .header-credit a:hover {
     text-decoration: underline;
   }
 
-  .header-actions {
-    display: flex;
-    align-items: center;
-    gap: 16px;
-    margin-top: 18px;
-  }
-
-  /* ── Add Account Button ─────────────────────────────────── */
-  .add-btn {
-    display: inline-block;
-    padding: 10px 22px;
-    background: #000;
-    color: #fff;
-    font-size: 0.75rem;
-    font-weight: 700;
-    font-family: inherit;
-    letter-spacing: 0.5px;
-    text-transform: uppercase;
-    border: 2px solid #000;
-    border-radius: 6px;
-    cursor: pointer;
-    transition: background 0.15s, color 0.15s;
-  }
-
-  .add-btn:hover {
-    background: #fff;
-    color: #000;
-  }
 
   /* ── Modal ──────────────────────────────────────────────── */
   .modal-overlay {
@@ -178,8 +161,45 @@
     font-size: 0.8rem;
     font-weight: 500;
     color: #666;
-    margin-bottom: 20px;
+    margin-bottom: 16px;
     line-height: 1.4;
+  }
+
+  .modal-perks {
+    list-style: none;
+    margin: 0 0 20px 0;
+    padding: 0;
+  }
+
+  .modal-perks li {
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: #333;
+    padding: 6px 0;
+    border-bottom: 1px solid #f0f0f0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .modal-perks li:last-child {
+    border-bottom: none;
+  }
+
+  .modal-perks .perk-icon {
+    color: #16a34a;
+    font-weight: 800;
+    font-size: 0.85rem;
+    flex-shrink: 0;
+  }
+
+  .modal-label {
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: #999;
+    margin-bottom: 6px;
   }
 
   .modal-input {
@@ -191,7 +211,7 @@
     border: 2px solid #e0e0e0;
     border-radius: 8px;
     outline: none;
-    margin-bottom: 16px;
+    margin-bottom: 14px;
     transition: border-color 0.15s;
   }
 
@@ -200,13 +220,13 @@
   }
 
   .modal-input:focus {
-    border-color: #000;
+    border-color: #16a34a;
   }
 
   .modal-submit {
     width: 100%;
     padding: 14px;
-    background: #000;
+    background: #16a34a;
     color: #fff;
     font-size: 0.85rem;
     font-weight: 700;
@@ -220,12 +240,43 @@
   }
 
   .modal-submit:hover {
-    background: #222;
+    background: #15803d;
   }
 
   .modal-submit:disabled {
     background: #ccc;
     cursor: not-allowed;
+  }
+
+  .modal-price {
+    text-align: center;
+    font-size: 0.7rem;
+    font-weight: 500;
+    color: #aaa;
+    margin-top: 10px;
+  }
+
+  /* ── Date Banner ──────────────────────────────────────── */
+  .date-banner {
+    margin-bottom: 24px;
+    text-align: center;
+    padding-top: 4px;
+  }
+
+  .date-banner .date-label {
+    font-family: 'Arial Black', 'Helvetica Neue', Arial, sans-serif;
+    font-size: clamp(0.75rem, 2vw, 0.9rem);
+    font-weight: 900;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: #999;
+  }
+
+  .date-banner .date-sub {
+    font-size: 0.78rem;
+    font-weight: 500;
+    color: #bbb;
+    margin-top: 2px;
   }
 
   /* ── Loading / Skeleton ────────────────────────────────── */
@@ -287,18 +338,25 @@
     100% { background-position: -200% 0; }
   }
 
-  /* ── Feed: Masonry 3-column ─────────────────────────────── */
+  /* ── Feed: Flex 3-column (left-to-right distribution) ───── */
   .feed {
-    column-count: 3;
-    column-gap: 16px;
+    display: flex;
+    gap: 16px;
+    margin-top: 20px;
+  }
+
+  .feed-column {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
   }
 
   /* ── Card ───────────────────────────────────────────────── */
   .card {
-    break-inside: avoid;
     display: flex;
     gap: 14px;
-    margin-bottom: 16px;
     padding: 20px;
     background: #fff;
     border-radius: 12px;
@@ -310,6 +368,7 @@
     text-decoration: none;
     color: inherit;
     transition: box-shadow 0.2s, transform 0.2s;
+    position: relative;
   }
 
   .card:hover {
@@ -321,17 +380,24 @@
     to { opacity: 1; transform: translateY(0); }
   }
 
-  .card-fresh {
-    animation: fadeIn 0.5s ease forwards;
-  }
-
-  @keyframes fadeIn {
-    from { opacity: 0; }
-    to { opacity: 1; }
-  }
-
   .card-left {
     flex-shrink: 0;
+  }
+
+  .card-avatar-link {
+    position: relative;
+    display: block;
+    text-decoration: none;
+    border-radius: 50%;
+    transition: transform 0.15s;
+  }
+
+  .card-avatar-link:hover {
+    transform: scale(1.08);
+  }
+
+  .card-avatar-link:hover .card-avatar-x {
+    opacity: 1;
   }
 
   .card-avatar {
@@ -339,6 +405,45 @@
     height: 40px;
     border-radius: 50%;
     background: #f0f0f0;
+    display: block;
+  }
+
+  .card-avatar-icon {
+    position: absolute;
+    bottom: -2px;
+    left: -2px;
+    width: 18px;
+    height: 18px;
+    border-radius: 4px;
+    border: 2px solid #fff;
+    background: #fff;
+    object-fit: cover;
+  }
+
+  .card-avatar-x {
+    position: absolute;
+    bottom: -2px;
+    right: -2px;
+    width: 16px;
+    height: 16px;
+    background: #000;
+    color: #fff;
+    border-radius: 50%;
+    font-size: 9px;
+    font-weight: 700;
+    line-height: 16px;
+    text-align: center;
+    border: 2px solid #fff;
+    opacity: 0;
+    transition: opacity 0.15s;
+    pointer-events: none;
+  }
+
+  .card-founder-name {
+    font-size: 0.68rem;
+    font-weight: 600;
+    color: #666;
+    white-space: nowrap;
   }
 
   .card-right {
@@ -346,18 +451,39 @@
     min-width: 0;
   }
 
-  .card-author-row {
+  /* Top row: startup name + daily revenue */
+  .card-top-row {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 2px;
+  }
+
+  .card-startup-name {
+    font-size: 0.85rem;
+    font-weight: 800;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    letter-spacing: -0.3px;
+  }
+
+  .card-daily {
+    font-size: 0.85rem;
+    font-weight: 800;
+    color: #16a34a;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  /* Sub row: @handle + verified + MRR */
+  .card-sub-row {
     display: flex;
     align-items: baseline;
     gap: 6px;
-    margin-bottom: 8px;
+    margin-bottom: 10px;
     flex-wrap: wrap;
-  }
-
-  .card-name {
-    font-size: 0.8rem;
-    font-weight: 800;
-    white-space: nowrap;
   }
 
   .card-handle {
@@ -367,30 +493,42 @@
     white-space: nowrap;
   }
 
-  .card-date {
-    font-size: 0.65rem;
-    font-weight: 500;
-    color: #bbb;
+  .card-verified {
+    font-size: 0.6rem;
+    font-weight: 700;
+    color: #16a34a;
+    white-space: nowrap;
+  }
+
+  .card-mrr {
+    font-size: 0.7rem;
+    font-weight: 600;
+    color: #666;
     margin-left: auto;
     white-space: nowrap;
   }
 
-  .card-summary {
+  /* Optional tweet section */
+  .card-tweet-divider {
+    border: none;
+    border-top: 1px solid #f0f0f0;
+    margin: 10px 0;
+  }
+
+  .card-tweet-text {
     font-weight: 500;
-    font-size: 0.9rem;
-    line-height: 1.45;
-    letter-spacing: -0.1px;
-    margin-bottom: 10px;
+    font-size: 0.8rem;
+    line-height: 1.4;
+    color: #444;
+    margin-bottom: 6px;
     overflow-wrap: break-word;
-    color: #222;
     white-space: pre-line;
   }
 
-  .card.md .card-summary { font-size: 0.95rem; }
-  .card.lg .card-summary { font-size: 1rem; }
-  .card.xl .card-summary { font-size: 1.05rem; }
+  .card.xl .card-tweet-text { font-size: 0.85rem; }
+  .card.lg .card-tweet-text { font-size: 0.83rem; }
 
-  .card-summary .money {
+  .card-tweet-text .money {
     color: #16a34a;
     font-weight: 800;
   }
@@ -459,86 +597,272 @@
     color: #bbb;
   }
 
-  /* ── CTA Card ───────────────────────────────────────────── */
-  .cta-card {
-    break-inside: avoid;
+  /* ── Card expand on hover ──────────────────────────────── */
+  .card-expand {
+    max-height: 0;
+    overflow: hidden;
+    opacity: 0;
+    transition: max-height 0.35s ease, opacity 0.25s ease, margin-top 0.35s ease;
+    margin-top: 0;
+  }
+
+  .card:hover .card-expand {
+    max-height: 180px;
+    opacity: 1;
+    margin-top: 10px;
+  }
+
+  .card-expand-divider {
+    border: none;
+    border-top: 1px solid #f0f0f0;
+    margin: 0 0 10px;
+  }
+
+  .card-expand-stats {
     display: flex;
-    gap: 14px;
-    margin-bottom: 16px;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+
+  .card-expand-stat {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+  }
+
+  .card-expand-stat-label {
+    font-size: 0.58rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: #aaa;
+  }
+
+  .card-expand-stat-value {
+    font-size: 0.78rem;
+    font-weight: 800;
+    color: #333;
+    letter-spacing: -0.3px;
+  }
+
+  .card-expand-stat-value.positive { color: #16a34a; }
+  .card-expand-stat-value.negative { color: #dc2626; }
+  .card-expand-stat-value.for-sale { color: #d97706; }
+
+  .card-expand-link {
+    display: inline-block;
+    margin-top: 8px;
+    font-size: 0.65rem;
+    font-weight: 700;
+    color: #999;
+    text-decoration: none;
+    transition: color 0.15s;
+  }
+
+  .card-expand-link:hover {
+    color: #000;
+    text-decoration: underline;
+  }
+
+  /* Card size tiers based on daily revenue */
+  .card.sm .card-startup-name { font-size: 0.8rem; }
+  .card.md .card-startup-name { font-size: 0.85rem; }
+  .card.lg .card-startup-name { font-size: 0.9rem; }
+  .card.xl .card-startup-name { font-size: 0.95rem; }
+
+  .card.lg .card-daily,
+  .card.xl .card-daily { font-size: 0.95rem; }
+
+  /* ── For Sale Badge (inline in top row) ────────────────────── */
+  .for-sale-badge {
+    font-size: 0.52rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: #92400e;
+    background: linear-gradient(135deg, #fef3c7, #fde68a);
+    padding: 2px 5px;
+    border-radius: 3px;
+    border: 1px solid #fcd34d;
+    white-space: nowrap;
+    flex-shrink: 0;
+    align-self: center;
+  }
+
+  /* ── Animated border for for-sale featured card ────────────── */
+  .card.for-sale-featured {
+    border: 2px solid #f59e0b;
+    animation: cardIn 0.35s ease forwards, forSaleBorderShift 4s 0.35s ease-in-out infinite;
+  }
+
+  .card.for-sale-featured:hover {
+    border-color: #d97706;
+    box-shadow: 0 0 14px rgba(217, 119, 6, 0.4);
+  }
+
+  @keyframes forSaleBorderShift {
+    0%, 100% { border-color: #fbbf24; box-shadow: 0 0 8px rgba(251, 191, 36, 0.25); }
+    33%      { border-color: #d97706; box-shadow: 0 0 12px rgba(217, 119, 6, 0.35); }
+    66%      { border-color: #f59e0b; box-shadow: 0 0 10px rgba(245, 158, 11, 0.3); }
+  }
+
+  /* ── Featured Section (top of feed) ────────────────────────── */
+  .featured-section {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+    margin-bottom: 20px;
+  }
+
+  .featured-section:empty {
+    display: none;
+  }
+
+  .featured-label {
+    grid-column: 1 / -1;
+    font-size: 0.6rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: #a78bfa;
+  }
+
+  .featured-slot-placeholder {
     padding: 20px;
     background: #fff;
+    border: 2px dashed #d4d0ec;
     border-radius: 12px;
-    border: 2px dashed #ddd;
+    display: flex;
+    align-items: center;
+    justify-content: center;
     cursor: pointer;
-    opacity: 0;
-    animation: cardIn 0.35s ease forwards;
     transition: border-color 0.2s, box-shadow 0.2s;
+    min-height: 70px;
   }
 
-  .cta-card:hover {
-    border-color: #000;
-    box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+  .featured-slot-placeholder:hover {
+    border-color: #a78bfa;
+    box-shadow: 0 4px 16px rgba(139, 92, 246, 0.08);
   }
 
-  .cta-left {
-    flex-shrink: 0;
+  .featured-slot-inner {
+    text-align: center;
   }
 
-  .cta-avatar-placeholder {
-    width: 40px;
-    height: 40px;
-    border-radius: 50%;
-    border: 2px dashed #ddd;
-    background: #fafafa;
-  }
-
-  .cta-right {
-    flex: 1;
-    min-width: 0;
-  }
-
-  .cta-line {
-    height: 10px;
-    border-radius: 6px;
-    background: #f0f0f0;
-    margin-bottom: 6px;
-  }
-
-  .cta-name-row {
-    display: flex;
-    gap: 6px;
-    margin-bottom: 10px;
-  }
-
-  .cta-name-row .cta-line:first-child { width: 60px; }
-  .cta-name-row .cta-line:last-child { width: 80px; }
-
-  .cta-body .cta-line { height: 14px; }
-  .cta-body .cta-line:nth-child(1) { width: 100%; }
-  .cta-body .cta-line:nth-child(2) { width: 75%; }
-
-  .cta-stats-row {
-    display: flex;
-    gap: 10px;
-    margin-top: 4px;
-    margin-bottom: 14px;
-  }
-
-  .cta-stats-row .cta-line { width: 45px; height: 8px; }
-
-  .cta-label {
-    font-size: 0.85rem;
+  .featured-slot-inner .slot-label {
+    font-size: 0.78rem;
     font-weight: 800;
-    color: #000;
+    color: #333;
     letter-spacing: -0.3px;
-    margin-bottom: 2px;
   }
 
-  .cta-sublabel {
-    font-size: 0.65rem;
-    font-weight: 500;
+  .featured-slot-inner .slot-sub {
+    font-size: 0.6rem;
+    font-weight: 600;
     color: #999;
+    margin-top: 2px;
   }
+
+  .featured-cta-link {
+    grid-column: 1 / -1;
+    font-size: 0.65rem;
+    font-weight: 600;
+    color: #a78bfa;
+    cursor: pointer;
+    transition: color 0.15s;
+    text-align: center;
+  }
+
+  .featured-cta-link:hover {
+    color: #7c3aed;
+    text-decoration: underline;
+  }
+
+  /* ── Promoted / Featured Card (in-feed outline) ────────────── */
+  .card.promoted {
+    border: 2px solid #a78bfa;
+  }
+
+  .card.promoted:hover {
+    box-shadow: 0 6px 24px rgba(139, 92, 246, 0.15);
+    border-color: #7c3aed;
+  }
+
+  .card.promoted .promoted-tag {
+    position: absolute;
+    top: 8px;
+    right: 10px;
+    font-size: 0.55rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    color: #7c3aed;
+    background: rgba(245, 243, 255, 0.92);
+    padding: 2px 7px;
+    border-radius: 3px;
+    border: 1px solid #ede9fe;
+  }
+
+  .card.promoted:hover .promoted-tag {
+    background: rgba(139, 92, 246, 0.12);
+    color: #6d28d9;
+  }
+
+  /* Hide promoted tag in featured section + always show expand details */
+  .featured-section .card.promoted .promoted-tag { display: none; }
+  .featured-section .card .card-expand { max-height: 200px; opacity: 1; margin-top: 10px; }
+  .featured-section .card:hover .card-expand { max-height: 200px; opacity: 1; margin-top: 10px; }
+
+  .featured-visit-icon {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    font-size: 0.85rem;
+    font-weight: 700;
+    color: #bbb;
+    background: #f5f5f5;
+    width: 24px;
+    height: 24px;
+    border-radius: 5px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+    transition: color 0.15s, background 0.15s;
+    pointer-events: none;
+  }
+
+  .card:hover .featured-visit-icon {
+    color: #16a34a;
+    background: #f0fdf4;
+  }
+
+  /* ── Rank Badge ──────────────────────────────────────────── */
+  .rank-badge {
+    position: absolute;
+    top: 8px;
+    left: 10px;
+    font-size: 0.6rem;
+    font-weight: 800;
+    color: #78350f;
+    background: linear-gradient(135deg, #fde68a, #fbbf24);
+    padding: 2px 7px;
+    border-radius: 4px;
+    letter-spacing: -0.3px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.12);
+  }
+
+  .rank-badge.rank-2 {
+    background: linear-gradient(135deg, #e5e7eb, #d1d5db);
+    color: #374151;
+  }
+
+  .rank-badge.rank-3 {
+    background: linear-gradient(135deg, #fbbf24, #d97706);
+    color: #fff;
+  }
+
+  /* (CTA card removed — replaced by featured-cta-link text) */
 
   /* ── Footer ────────────────────────────────────────────── */
   .footer {
@@ -572,34 +896,83 @@
     letter-spacing: 1px;
   }
 
-  .credit {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 10px;
-    margin-top: 28px;
+  .footer-advertise {
+    margin-top: 14px;
   }
 
-  .credit-avatar {
-    width: 32px;
-    height: 32px;
-    border-radius: 50%;
-    background: #eee;
-  }
-
-  .credit-text {
+  .footer-advertise a {
+    color: #16a34a;
     font-size: 0.8rem;
-    font-weight: 600;
-    color: #999;
+    font-weight: 700;
+    text-decoration: none;
+    cursor: pointer;
   }
 
-  .credit-text a {
-    color: #000;
-    font-weight: 700;
+  .footer-links {
+    margin-top: 12px;
+    font-size: 0.7rem;
+    font-weight: 600;
+    color: #bbb;
+  }
+
+  .footer-links a {
+    color: #999;
     text-decoration: none;
   }
 
-  .credit-text a:hover {
+  .footer-links a:hover {
+    color: #000;
+    text-decoration: underline;
+  }
+
+  .footer-apps {
+    margin-top: 24px;
+    padding-top: 20px;
+    border-top: 1px solid #eee;
+  }
+
+  .footer-apps-label {
+    font-size: 0.6rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: #bbb;
+    margin-bottom: 8px;
+  }
+
+  .footer-apps a {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: #333;
+    font-size: 0.78rem;
+    font-weight: 700;
+    text-decoration: none;
+    transition: color 0.15s;
+  }
+
+  .footer-apps a:hover {
+    color: #16a34a;
+  }
+
+  .footer-apps a img {
+    width: 20px;
+    height: 20px;
+    border-radius: 4px;
+  }
+
+  .footer-advertise a:hover {
+    text-decoration: underline;
+  }
+
+  .header-credit .advertise-link {
+    color: #999;
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  .header-credit .advertise-link:hover {
+    color: #16a34a;
     text-decoration: underline;
   }
 
@@ -641,32 +1014,117 @@
     50% { opacity: 1; }
   }
 
-  /* ── Tablet: 2 columns ──────────────────────────────────── */
+  /* ── Tablet: 2 columns (601–960px) ─────────────────────── */
   @media (max-width: 960px) {
-    .feed, .skeleton { column-count: 2; }
+    .skeleton { column-count: 2; }
+
+    /* Grid replaces flex so ALL cards show in 2 columns */
+    .feed {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+    .feed-column { display: contents; }
+
+    .featured-section { grid-template-columns: 1fr 1fr; }
+
+    .card { padding: 16px; gap: 12px; }
+    .card-expand-stats { gap: 12px; }
+
+    .header h1 { letter-spacing: -1.5px; }
   }
 
-  /* ── Mobile: 1 column ───────────────────────────────────── */
+  /* ── Mobile: 1 column (≤600px) ───────────────────────────── */
   @media (max-width: 600px) {
-    body { padding: 0; }
+    body { padding: 0; -webkit-text-size-adjust: 100%; }
     .page { padding: 0 12px; }
 
-    .header { padding: 28px 0 24px; }
+    /* Header */
+    .header { padding: 20px 0 16px; }
+    .header h1 { font-size: 1.45rem; letter-spacing: -1.2px; }
+    .header .sub { font-size: 0.72rem; margin-top: 4px; }
+    .header-credit { font-size: 0.62rem; gap: 3px; margin-top: 8px; }
+    .header-credit img { width: 16px; height: 16px; }
 
-    .feed, .skeleton { column-count: 1; }
+    /* Date banner */
+    .date-banner { margin-bottom: 14px; }
+    .date-banner .date-sub { font-size: 0.7rem; }
 
-    .card { padding: 16px; gap: 10px; }
-    .card-avatar { width: 34px; height: 34px; }
-    .card.xl .card-summary { font-size: 1.3rem; }
-    .card.lg .card-summary { font-size: 1.1rem; }
-
-    .cta-card { padding: 16px; gap: 10px; }
-
-    .footer { padding: 28px 0 48px; margin-top: 32px; }
-
+    /* Skeleton */
+    .skeleton { column-count: 1; }
     .skeleton-avatar { width: 34px; height: 34px; }
 
-    .modal { padding: 24px; }
+    /* Feed — single column */
+    .feed {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      margin-top: 14px;
+    }
+    .feed-column { display: contents; }
+
+    /* Cards */
+    .card { padding: 14px; gap: 10px; }
+    .card-avatar { width: 34px; height: 34px; }
+    .card-avatar-icon { width: 15px; height: 15px; }
+    .card-top-row { gap: 6px; }
+    .card-sub-row { gap: 4px; margin-bottom: 8px; }
+    .card-handle { font-size: 0.65rem; }
+    .card-mrr { font-size: 0.63rem; }
+    .card-founder-name { font-size: 0.62rem; }
+    .card-tweet-divider { margin: 8px 0; }
+    .card-tweet-text { font-size: 0.75rem; }
+    .card-stats { font-size: 0.6rem; gap: 8px; }
+    .card-media-grid img { height: 100px; }
+
+    .featured-section { grid-template-columns: 1fr; gap: 10px; margin-bottom: 14px; padding-bottom: 12px; }
+
+    /* Always show expand on mobile (no hover on touch) */
+    .card-expand {
+      max-height: 180px;
+      opacity: 1;
+      margin-top: 8px;
+    }
+    .card-expand-divider { margin: 0 0 8px; }
+    .card-expand-stats { gap: 10px; }
+    .card-expand-stat-label { font-size: 0.55rem; }
+    .card-expand-stat-value { font-size: 0.72rem; }
+    .card-expand-link { font-size: 0.62rem; margin-top: 6px; }
+
+    /* Badges */
+    .rank-badge { font-size: 0.52rem; padding: 1px 5px; top: 6px; left: 8px; }
+    .promoted-tag { font-size: 0.5rem; top: 6px; right: 8px; }
+    .for-sale-badge { font-size: 0.5rem; }
+
+    /* Footer */
+    .footer { padding: 24px 0 40px; margin-top: 24px; }
+    .footer p { font-size: 0.8rem; }
+    .footer .count { font-size: 0.68rem; margin-top: 12px; }
+    .footer-advertise { margin-top: 10px; }
+    .footer-advertise a { font-size: 0.72rem; }
+    .featured-visit-icon { width: 20px; height: 20px; font-size: 0.75rem; top: 8px; right: 8px; }
+    .footer-links { font-size: 0.65rem; }
+    .footer-apps { margin-top: 18px; padding-top: 16px; }
+    .footer-apps a { font-size: 0.72rem; }
+
+    /* Modal */
+    .modal { padding: 20px; width: 95%; max-width: none; border-radius: 10px; }
+    .modal h2 { font-size: 1.05rem; }
+    .modal p { font-size: 0.75rem; }
+    .modal-perks li { font-size: 0.72rem; padding: 5px 0; }
+    .modal-input { padding: 10px 12px; font-size: 16px; border-radius: 6px; }
+    .modal-submit { padding: 12px; font-size: 0.8rem; border-radius: 6px; }
+    .modal-price { font-size: 0.65rem; }
+    .modal-close { font-size: 1.2rem; top: 10px; right: 12px; }
+  }
+
+  /* ── Small phones (≤380px) ───────────────────────────────── */
+  @media (max-width: 380px) {
+    .header h1 { font-size: 1.25rem; letter-spacing: -1px; }
+    .header .sub { font-size: 0.68rem; }
+    .card { padding: 12px; gap: 8px; }
+    .card-avatar { width: 30px; height: 30px; }
+    .card-expand-stats { gap: 8px; }
   }
 </style>
 </head>
@@ -674,14 +1132,15 @@
 
 <div class="page">
   <div class="header">
-    <h1>While You Were Sleeping</h1>
-    <div class="sub">Everyone else shipped, raised, and got paid. Here's the proof.</div>
+    <h1>While You Slept<br>Everyone Else Made <span class="cash-inline" id="cashAmount">$0</span></h1>
+    <div class="sub" id="cashSub">yesterday, across 0 startups verified on TrustMRR</div>
     <div class="header-credit">
-      <img src="https://unavatar.io/x/MTLFORBRKFST" alt="@MTLFORBRKFST" loading="eager">
-      <span>curated by <a href="https://x.com/MTLFORBRKFST" target="_blank" rel="noopener">@MTLFORBRKFST</a></span>
-    </div>
-    <div class="header-actions">
-      <button class="add-btn" id="addBtn">Add your account to the tracker</button>
+      <span>This pain brought to you by</span>
+      <a href="https://x.com/MTLFORBRKFST" target="_blank" rel="noopener"><img src="https://unavatar.io/x/MTLFORBRKFST" alt="" loading="eager"> @MTLFORBRKFST</a>
+      <span>and</span>
+      <a href="https://trustmrr.com" target="_blank" rel="noopener"><img class="credit-logo" src="/trustmrr-logo.png" alt="" loading="eager"> TrustMRR.com</a>
+      <span>&middot;</span>
+      <a href="#" class="advertise-link" id="advertiseTopLink">Advertise</a>
     </div>
   </div>
 
@@ -697,6 +1156,7 @@
   </div>
 
   <div id="content" style="display:none;">
+    <div class="featured-section" id="featuredSection"></div>
     <div class="feed" id="feed"></div>
   </div>
 
@@ -704,41 +1164,66 @@
     <h2>The window is closing.</h2>
     <p>Every day you wait, someone else ships what you were "going to build."</p>
     <div class="count" id="count"></div>
-    <div class="credit">
-      <img class="credit-avatar" src="https://unavatar.io/x/MTLFORBRKFST" alt="" loading="lazy">
-      <div class="credit-text">This pain brought to you by <a href="https://x.com/MTLFORBRKFST" target="_blank" rel="noopener">@MTLFORBRKFST</a></div>
+    <div class="footer-advertise">
+      <a href="#" id="advertiseFooterLink">Advertise your SaaS here &mdash; $49/week</a>
+    </div>
+    <div class="footer-links">
+      <a href="/faq">FAQ</a>
+    </div>
+    <div class="footer-apps">
+      <div class="footer-apps-label">Other Apps By Metal</div>
+      <a href="https://mixels.ai" target="_blank" rel="noopener"><img src="https://unavatar.io/x/MixelsAI" alt="" onerror="this.style.display='none'">Mixels.ai</a>
     </div>
   </div>
 </div>
 
-<!-- Add Account Modal -->
+<!-- Promote SaaS Modal -->
 <div class="modal-overlay" id="modal">
   <div class="modal">
     <button class="modal-close" id="modalClose">&times;</button>
-    <h2>Add your account to the tracker</h2>
-    <p>Get your wins featured on the wall. Up to 1 tweet per day showcasing your revenue milestones.</p>
+    <h2>Get your SaaS in front of builders</h2>
+    <p>Your startup gets a featured card on the wall, seen by hundreds of founders and indie hackers daily.</p>
+    <ul class="modal-perks">
+      <li><span class="perk-icon">&#10003;</span> Featured card with your revenue, logo, and link</li>
+      <li><span class="perk-icon">&#10003;</span> Your latest FOMO tweet highlighted automatically</li>
+      <li><span class="perk-icon">&#10003;</span> Pinned above organic results for max visibility</li>
+      <li><span class="perk-icon">&#10003;</span> Drives traffic from high-intent builder audience</li>
+    </ul>
+    <div class="modal-label">Your X handle</div>
     <input class="modal-input" id="handleInput" type="text" placeholder="@yourhandle" autocomplete="off" spellcheck="false">
-    <button class="modal-submit" id="modalSubmit" disabled>Continue</button>
+    <div class="modal-label">Your SaaS name</div>
+    <input class="modal-input" id="saasInput" type="text" placeholder="e.g. ShipFast, Pallyy, Potion" autocomplete="off" spellcheck="false">
+    <button class="modal-submit" id="modalSubmit" disabled>Get featured &mdash; $49/week</button>
+    <div class="modal-price">$49/week &middot; Cancel anytime &middot; Secure checkout via Stripe</div>
   </div>
 </div>
 
 <script>
 (function() {
   var REFRESH_MS = 60000;
-  var shownIds = {};
-  var shownCount = 0;
 
   /* ── Modal logic ────────────────────────────────────────── */
   var modal = document.getElementById('modal');
   var handleInput = document.getElementById('handleInput');
+  var saasInput = document.getElementById('saasInput');
   var submitBtn = document.getElementById('modalSubmit');
 
-  document.getElementById('addBtn').addEventListener('click', function() {
+  function validateModal() {
+    var h = handleInput.value.replace(/^@/, '').trim();
+    var s = saasInput.value.trim();
+    submitBtn.disabled = h.length < 1 || s.length < 1;
+  }
+
+  function openModal() {
     modal.classList.add('active');
     handleInput.value = '';
+    saasInput.value = '';
     submitBtn.disabled = true;
     setTimeout(function() { handleInput.focus(); }, 100);
-  });
+  }
+
+  document.getElementById('advertiseTopLink').addEventListener('click', function(e) { e.preventDefault(); openModal(); });
+  document.getElementById('advertiseFooterLink').addEventListener('click', function(e) { e.preventDefault(); openModal(); });
 
   document.getElementById('modalClose').addEventListener('click', function() {
     modal.classList.remove('active');
@@ -748,18 +1233,23 @@
     if (e.target === modal) modal.classList.remove('active');
   });
 
-  handleInput.addEventListener('input', function() {
-    var v = handleInput.value.replace(/^@/, '').trim();
-    submitBtn.disabled = v.length < 1;
-  });
+  handleInput.addEventListener('input', validateModal);
+  saasInput.addEventListener('input', validateModal);
 
   submitBtn.addEventListener('click', function() {
     var handle = handleInput.value.replace(/^@/, '').trim();
-    if (!handle) return;
-    window.location.href = '/api/checkout?handle=' + encodeURIComponent(handle);
+    var saas = saasInput.value.trim();
+    if (!handle || !saas) return;
+    localStorage.setItem('pendingAdHandle', handle);
+    localStorage.setItem('pendingAdSaas', saas);
+    window.location.href = '/api/checkout?handle=' + encodeURIComponent(handle) + '&saas=' + encodeURIComponent(saas);
   });
 
   handleInput.addEventListener('keydown', function(e) {
+    if (e.key === 'Enter') { saasInput.focus(); e.preventDefault(); }
+  });
+
+  saasInput.addEventListener('keydown', function(e) {
     if (e.key === 'Enter' && !submitBtn.disabled) submitBtn.click();
   });
 
@@ -770,23 +1260,20 @@
     return String(n);
   }
 
-  function formatDate(dateStr) {
-    if (!dateStr) return '';
-    var d = new Date(dateStr);
-    var now = new Date();
-    var diffH = Math.floor((now - d) / 3600000);
-    if (diffH < 1) return 'just now';
-    if (diffH < 24) return diffH + 'h ago';
-    var diffD = Math.floor(diffH / 24);
-    if (diffD === 1) return 'yesterday';
-    if (diffD < 7) return diffD + 'd ago';
-    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  function formatDollar(n) {
+    if (n >= 1000000) return '$' + (n / 1000000).toFixed(1) + 'M';
+    if (n >= 1000) return '$' + Math.round(n).toLocaleString();
+    return '$' + n.toFixed(0);
   }
 
-  function tier(score) {
-    if (score >= 35) return 'xl';
-    if (score >= 25) return 'lg';
-    if (score >= 15) return 'md';
+  function formatDollarWhole(n) {
+    return '$' + Math.round(n).toLocaleString();
+  }
+
+  function tier(dailyRevenue) {
+    if (dailyRevenue >= 1000) return 'xl';
+    if (dailyRevenue >= 500) return 'lg';
+    if (dailyRevenue >= 100) return 'md';
     return 'sm';
   }
 
@@ -799,9 +1286,35 @@
     return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   }
 
-  function updateCount() {
-    var el = document.getElementById('count');
-    if (el) el.textContent = shownCount + ' revenue moments captured.';
+  /* ── Animated count-up ──────────────────────────────────── */
+  function animateCountUp(el, target, prefix, duration) {
+    var start = 0;
+    var startTime = null;
+    duration = duration || 1500;
+
+    function step(timestamp) {
+      if (!startTime) startTime = timestamp;
+      var progress = Math.min((timestamp - startTime) / duration, 1);
+      // Ease out cubic
+      var eased = 1 - Math.pow(1 - progress, 3);
+      var current = Math.round(start + (target - start) * eased);
+      el.textContent = (prefix || '') + current.toLocaleString();
+      if (progress < 1) {
+        requestAnimationFrame(step);
+      }
+    }
+    requestAnimationFrame(step);
+  }
+
+  /* ── Yesterday date banner ─────────────────────────────── */
+  function setDateBanner() {
+    var now = new Date();
+    var yesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+    var weekday = yesterday.toLocaleDateString('en-US', { weekday: 'long' });
+    var month = yesterday.toLocaleDateString('en-US', { month: 'long' });
+    var day = yesterday.getDate();
+    var label = document.getElementById('dateLabel');
+    if (label) label.textContent = 'Yesterday \u2014 ' + weekday + ', ' + month + ' ' + day;
   }
 
   /* ── Card element builder ───────────────────────────────── */
@@ -809,11 +1322,9 @@
     if (!media || !media.length) return '';
     var html = '';
 
-    // Separate photos and videos
     var photos = media.filter(function(m) { return m.type === 'photo'; });
     var videos = media.filter(function(m) { return m.type === 'video'; });
 
-    // Render videos first (show thumbnail with play icon)
     for (var i = 0; i < videos.length; i++) {
       var v = videos[i];
       if (v.thumb) {
@@ -823,7 +1334,6 @@
       }
     }
 
-    // Render photos
     if (photos.length === 1) {
       html += '<div class="card-media">' +
         '<img src="' + escapeHtml(photos[0].url) + '" alt="" loading="lazy" onerror="this.parentNode.style.display=\'none\'">' +
@@ -839,45 +1349,157 @@
     return html;
   }
 
-  function createCard(card) {
-    var t = tier(card.score);
-    var el = document.createElement('a');
-    el.className = 'card ' + t;
-    el.href = 'https://x.com/' + encodeURIComponent(card.handle) + '/status/' + encodeURIComponent(card.id);
-    el.target = '_blank';
-    el.rel = 'noopener';
+  function createCard(startup, rank) {
+    var t = tier(startup.dailyRevenue);
+    var el = document.createElement('div');
+    el.className = 'card ' + t + (startup.isPromoted && !startup.isDefault ? ' promoted' : '');
 
-    var timeAgo = formatDate(card.date);
-    var safeName = escapeHtml(card.name);
-    var safeHandle = escapeHtml(card.handle);
-    var mediaHtml = buildMediaHtml(card.media);
+    // Card clicks through to ad URL, TrustMRR, or X fallback
+    var cardUrl = startup.isPromoted && startup.adUrl
+      ? startup.adUrl
+      : startup.slug
+        ? 'https://trustmrr.com/startup/' + encodeURIComponent(startup.slug)
+        : 'https://x.com/' + encodeURIComponent(startup.handle);
+    el.addEventListener('click', function() {
+      window.open(cardUrl, '_blank', 'noopener');
+    });
 
-    el.innerHTML =
+    var startupDisplayName = startup.startupName || startup.name || startup.handle;
+    var safeStartupName = escapeHtml(startupDisplayName);
+    var safeHandle = escapeHtml(startup.handle);
+
+    // Founder name: prefer real name from scrape, fall back to handle
+    var founderName = startup.name && startup.name !== startup.handle ? startup.name : '';
+    var safeFounderName = founderName ? escapeHtml(founderName) : '';
+
+    // Founder pfp: use scraped avatar (Twitter CDN) or unavatar fallback
+    var founderPfp = startup.avatar || ('https://unavatar.io/x/' + encodeURIComponent(startup.handle));
+    var twitterUrl = 'https://x.com/' + encodeURIComponent(startup.handle);
+
+    // Startup icon (small badge overlay on avatar)
+    var iconBadgeHtml = '';
+    if (startup.icon) {
+      iconBadgeHtml = '<img class="card-avatar-icon" src="' + escapeHtml(startup.icon) + '" alt="" onerror="this.style.display=\'none\'">';
+    }
+
+    // Rank badge for top 3 organic cards
+    var rankBadgeHtml = '';
+    if (rank === 1) rankBadgeHtml = '<span class="rank-badge">#1</span>';
+    else if (rank === 2) rankBadgeHtml = '<span class="rank-badge rank-2">#2</span>';
+    else if (rank === 3) rankBadgeHtml = '<span class="rank-badge rank-3">#3</span>';
+
+    var promotedTagHtml = startup.isPromoted ? '<span class="promoted-tag">Featured</span>' : '';
+    var forSaleBadgeHtml = startup.onSale ? '<span class="for-sale-badge">For Sale</span>' : '';
+
+    var html = rankBadgeHtml + promotedTagHtml +
       '<div class="card-left">' +
-        (card.avatar
-          ? '<img class="card-avatar" src="' + escapeHtml(card.avatar) + '" alt="" loading="lazy" onerror="this.style.display=\'none\'">'
-          : '<div class="card-avatar"></div>') +
+        '<a href="' + escapeHtml(twitterUrl) + '" target="_blank" rel="noopener" class="card-avatar-link" onclick="event.stopPropagation()">' +
+          '<img class="card-avatar" src="' + escapeHtml(founderPfp) + '" alt="" loading="lazy" onerror="this.style.display=\'none\'">' +
+          iconBadgeHtml +
+          '<span class="card-avatar-x">&#120143;</span>' +
+        '</a>' +
       '</div>' +
       '<div class="card-right">' +
-        '<div class="card-author-row">' +
-          '<div class="card-name">' + safeName + '</div>' +
+        '<div class="card-top-row">' +
+          '<div class="card-startup-name">' + safeStartupName + '</div>' +
+          forSaleBadgeHtml +
+          '<div class="card-daily">' + formatDollar(startup.dailyRevenue) + '/day</div>' +
+        '</div>' +
+        '<div class="card-sub-row">' +
+          (safeFounderName ? '<div class="card-founder-name">' + safeFounderName + '</div>' : '') +
           '<div class="card-handle">@' + safeHandle + '</div>' +
-          '<div class="card-date">' + timeAgo + '</div>' +
+          (startup.verified ? '<span class="card-verified">&#10003; verified</span>' : '') +
+          '<div class="card-mrr">' + formatDollarWhole(startup.mrr) + ' MRR' + (startup.askPrice ? ' &middot; Ask ' + escapeHtml(startup.askPrice) : '') + '</div>' +
         '</div>' +
-        '<div class="card-summary">' + highlightMoney(escapeHtml(card.summary)) + '</div>' +
-        mediaHtml +
-        '<div class="card-stats">' +
-          '<span>' + formatNum(card.likes) + ' likes</span>' +
-          '<span>' + formatNum(card.views) + ' views</span>' +
-          '<span>' + formatNum(card.bookmarks) + ' saves</span>' +
-        '</div>' +
+        (startup.description ? '<div style="font-size:0.7rem;color:#888;margin-bottom:8px;">' + escapeHtml(startup.description) + '</div>' : '');
+
+    // Optional tweet section
+    if (startup.tweet && startup.tweet.summary) {
+      var tw = startup.tweet;
+      html += '<hr class="card-tweet-divider">' +
+        '<div class="card-tweet-text">' + highlightMoney(escapeHtml(tw.summary)) + '</div>';
+
+      // Media from tweet
+      if (tw.media) {
+        html += buildMediaHtml(tw.media);
+      }
+
+      html += '<div class="card-stats">' +
+        '<span>' + formatNum(tw.likes) + ' likes</span>' +
+        '<span>' + formatNum(tw.views) + ' views</span>' +
+        '<span>' + formatNum(tw.bookmarks) + ' saves</span>' +
       '</div>';
+    }
+
+    // Expandable details on hover
+    var expandStats = '';
+
+    // Monthly revenue
+    expandStats += '<div class="card-expand-stat">' +
+      '<div class="card-expand-stat-label">Monthly</div>' +
+      '<div class="card-expand-stat-value">' + formatDollarWhole(startup.mrr) + '</div>' +
+    '</div>';
+
+    // 30-day growth
+    if (startup.growth30d !== null && startup.growth30d !== undefined) {
+      var gVal = startup.growth30d;
+      var gClass = gVal >= 0 ? 'positive' : 'negative';
+      var gSign = gVal >= 0 ? '+' : '';
+      expandStats += '<div class="card-expand-stat">' +
+        '<div class="card-expand-stat-label">30d Growth</div>' +
+        '<div class="card-expand-stat-value ' + gClass + '">' + gSign + gVal.toFixed(1) + '%</div>' +
+      '</div>';
+    }
+
+    // Daily revenue
+    expandStats += '<div class="card-expand-stat">' +
+      '<div class="card-expand-stat-label">Daily</div>' +
+      '<div class="card-expand-stat-value">' + formatDollar(startup.dailyRevenue) + '</div>' +
+    '</div>';
+
+    // For sale
+    if (startup.onSale) {
+      expandStats += '<div class="card-expand-stat">' +
+        '<div class="card-expand-stat-label">For Sale</div>' +
+        '<div class="card-expand-stat-value for-sale">' + (startup.askingPrice ? formatDollarWhole(startup.askingPrice) : 'Yes') + '</div>' +
+      '</div>';
+    }
+
+    // Verified
+    if (startup.verified) {
+      expandStats += '<div class="card-expand-stat">' +
+        '<div class="card-expand-stat-label">Status</div>' +
+        '<div class="card-expand-stat-value positive">Verified</div>' +
+      '</div>';
+    }
+
+    var expandLink = '';
+    if (startup.slug) {
+      expandLink = '<a href="https://trustmrr.com/startup/' + encodeURIComponent(startup.slug) + '" target="_blank" rel="noopener" class="card-expand-link" onclick="event.stopPropagation()">View on TrustMRR &rarr;</a>';
+    }
+
+    html += '<div class="card-expand">' +
+      '<hr class="card-expand-divider">' +
+      '<div class="card-expand-stats">' + expandStats + '</div>' +
+      expandLink +
+    '</div>';
+
+    html += '</div>';
+    el.innerHTML = html;
 
     return el;
   }
 
   /* ── CTA card builder ──────────────────────────────────── */
-  function createCtaCard() {
+  var ctaVariants = [
+    { label: 'Your SaaS here', sub: 'Get seen by hundreds of builders daily.' },
+    { label: 'This could be you', sub: 'Promote your startup on the wall.' },
+    { label: 'Want this spot?', sub: 'Feature your revenue milestones here.' },
+    { label: 'Advertise here', sub: 'Put your SaaS in front of builders.' },
+  ];
+
+  function createCtaCard(index) {
+    var variant = ctaVariants[(index || 0) % ctaVariants.length];
     var el = document.createElement('div');
     el.className = 'cta-card';
     el.innerHTML =
@@ -891,92 +1513,193 @@
         '</div>' +
         '<div class="cta-body">' +
           '<div class="cta-line"></div>' +
-          '<div class="cta-line"></div>' +
         '</div>' +
-        '<div class="cta-stats-row">' +
-          '<div class="cta-line"></div>' +
-          '<div class="cta-line"></div>' +
-          '<div class="cta-line"></div>' +
-        '</div>' +
-        '<div class="cta-label">Your account here</div>' +
-        '<div class="cta-sublabel">Get your wins featured on the wall.</div>' +
+        '<div class="cta-label">' + escapeHtml(variant.label) + '</div>' +
+        '<div class="cta-sublabel">' + escapeHtml(variant.sub) + '</div>' +
       '</div>';
-    el.addEventListener('click', function() {
-      document.getElementById('addBtn').click();
-    });
+    el.addEventListener('click', openModal);
     return el;
   }
 
-  /* ── Render: initial feed display ───────────────────────── */
-  var CTA_INTERVAL = 8;
+  /* ── Render feed ─────────────────────────────────────────── */
+  var lastData = null;
 
-  function renderInitial(cards) {
+  function renderFeed(data) {
     var feed = document.getElementById('feed');
+    var featuredSection = document.getElementById('featuredSection');
     feed.innerHTML = '';
+    featuredSection.innerHTML = '';
 
-    var sorted = cards.slice().sort(function(a, b) {
-      return new Date(b.date) - new Date(a.date);
-    });
+    var startups = (data.startups || []).filter(function(s) { return s.dailyRevenue > 0; });
 
-    var rendered = 0;
-    for (var i = 0; i < sorted.length; i++) {
-      var card = sorted[i];
-      if (shownIds[card.id]) continue;
-      shownIds[card.id] = true;
-      shownCount++;
+    // ── Helper: parse MRR string like "$48K MRR" or "$1.2M" → number
+    function parseMrrValue(str) {
+      if (!str) return 0;
+      var m = str.replace(/,/g, '').match(/\$?([\d.]+)\s*([KkMm])?/);
+      if (!m) return 0;
+      var n = parseFloat(m[1]);
+      if (m[2] && (m[2] === 'K' || m[2] === 'k')) n *= 1000;
+      if (m[2] && (m[2] === 'M' || m[2] === 'm')) n *= 1000000;
+      return n;
+    }
 
-      if (rendered > 0 && rendered % CTA_INTERVAL === 0) {
-        var cta = createCtaCard();
-        cta.style.animationDelay = (rendered * 0.03) + 's';
-        feed.appendChild(cta);
+    // Mix paid feed ads into the startups array
+    var feedAds = (data.ads && data.ads.feed) ? data.ads.feed : [];
+    var promotedStartups = [];
+    for (var a = 0; a < feedAds.length; a++) {
+      var ad = feedAds[a];
+      var adMrr = parseMrrValue(ad.mrr);
+      var promoted = {
+        handle: ad.handle,
+        name: ad.handle,
+        startupName: ad.saasName,
+        description: ad.description || '',
+        avatar: ad.avatar || null,
+        mrr: adMrr,
+        dailyRevenue: Math.round(adMrr / 30 * 100) / 100,
+        verified: false,
+        slug: ad.slug || null,
+        icon: null,
+        tweet: null,
+        isPromoted: true,
+        isDefault: ad.isDefault || false,
+        adUrl: ad.url || null,
+        askPrice: ad.askPrice || null,
+      };
+      startups.push(promoted);
+      promotedStartups.push(promoted);
+    }
+
+    // Sort all by daily revenue descending
+    startups.sort(function(a, b) { return b.dailyRevenue - a.dailyRevenue; });
+
+    if (startups.length === 0) {
+      var emptyDiv = document.createElement('div');
+      emptyDiv.className = 'empty-state';
+      if (data.scanning) {
+        emptyDiv.innerHTML = '<p><span class="scan-dot"></span>Syncing revenue data from TrustMRR...</p>' +
+          '<div class="sub-text">Startup data will appear here shortly.</div>';
+      } else {
+        emptyDiv.innerHTML = '<p>No startups found</p>' +
+          '<div class="sub-text">Check back shortly.</div>';
       }
+      feed.appendChild(emptyDiv);
+      return;
+    }
 
-      var el = createCard(card);
-      el.style.animationDelay = (rendered * 0.03) + 's';
-      feed.appendChild(el);
-      rendered++;
+    // ── Featured section at top (top-zone ads including defaults) ──
+    var topAds = (data.ads && data.ads.top) ? data.ads.top : [];
+    var featLabel = document.createElement('div');
+    featLabel.className = 'featured-label';
+    featLabel.textContent = 'Featured';
+    featuredSection.appendChild(featLabel);
+
+    var TOTAL_SLOTS = 3;
+
+    // Build featured startup objects from top-zone ads
+    var featRendered = 0;
+
+    for (var t = 0; t < Math.min(topAds.length, TOTAL_SLOTS); t++) {
+      var topAd = topAds[t];
+      var topMrr = parseMrrValue(topAd.mrr);
+      var featStartup = {
+        handle: topAd.handle,
+        name: topAd.founderName || topAd.handle,
+        startupName: topAd.saasName,
+        description: topAd.description || '',
+        avatar: topAd.avatar || null,
+        icon: topAd.icon || null,
+        mrr: topMrr,
+        dailyRevenue: topAd.dailyRevenue || Math.round(topMrr / 30 * 100) / 100,
+        growth30d: topAd.growth30d || null,
+        verified: topAd.verified || false,
+        onSale: topAd.onSale || false,
+        askingPrice: topAd.askingPrice || null,
+        slug: topAd.slug || null,
+        tweet: null,
+        isPromoted: true,
+        isDefault: topAd.isDefault || false,
+        adUrl: topAd.url || null,
+        askPrice: topAd.askPrice || null,
+      };
+      var featCard = createCard(featStartup);
+      if (featStartup.onSale) featCard.classList.add('for-sale-featured');
+      // Add external-link visit icon
+      var visitIcon = document.createElement('span');
+      visitIcon.className = 'featured-visit-icon';
+      visitIcon.innerHTML = '&#8599;';
+      visitIcon.title = 'Visit';
+      featCard.appendChild(visitIcon);
+      featCard.style.animationDelay = (t * 0.02) + 's';
+      featuredSection.appendChild(featCard);
+      featRendered++;
+    }
+
+    // Advertise CTA link
+    var adLink = document.createElement('div');
+    adLink.className = 'featured-cta-link';
+    adLink.textContent = 'Want your SaaS here? Advertise \u2014 $49/week \u2192';
+    adLink.addEventListener('click', openModal);
+    featuredSection.appendChild(adLink);
+
+    // ── Build all feed cards ─────────────────────────────────
+    var feedCards = [];
+    var organicRank = 0;
+    var animIdx = promotedStartups.length;
+
+    for (var i = 0; i < startups.length; i++) {
+      var rank;
+      if (!startups[i].isPromoted) {
+        organicRank++;
+        rank = organicRank <= 3 ? organicRank : undefined;
+      }
+      feedCards.push(createCard(startups[i], rank));
+    }
+
+    // Distribute cards round-robin across 3 columns
+    var NUM_COLS = 3;
+    var columns = [];
+    for (var c = 0; c < NUM_COLS; c++) {
+      var col = document.createElement('div');
+      col.className = 'feed-column';
+      columns.push(col);
+      feed.appendChild(col);
+    }
+
+    for (var fi = 0; fi < feedCards.length; fi++) {
+      feedCards[fi].style.animationDelay = (animIdx * 0.02) + 's';
+      columns[fi % NUM_COLS].appendChild(feedCards[fi]);
+      animIdx++;
     }
   }
 
-  /* ── Render: add new cards ──────────────────────────────── */
-  function addNew(cards) {
-    var feed = document.getElementById('feed');
+  function updateCashBanner(data) {
+    var amountEl = document.getElementById('cashAmount');
+    var subEl = document.getElementById('cashSub');
+    var activeCount = (data.startups || []).filter(function(s) { return s.dailyRevenue > 0; }).length;
 
-    var sorted = cards.slice().sort(function(a, b) {
-      return new Date(b.date) - new Date(a.date);
-    });
+    animateCountUp(amountEl, Math.round(data.totalDailyRevenue), '$', 1500);
+    subEl.textContent = 'yesterday, across ' + activeCount + ' startups verified on TrustMRR';
+  }
 
-    var fresh = [];
-    for (var i = 0; i < sorted.length; i++) {
-      if (!shownIds[sorted[i].id]) fresh.push(sorted[i]);
-    }
-
-    if (!fresh.length) return;
-
-    for (var j = 0; j < fresh.length; j++) {
-      var card = fresh[j];
-      shownIds[card.id] = true;
-      shownCount++;
-
-      var el = createCard(card);
-      el.className += ' card-fresh';
-      if (feed.firstChild) {
-        feed.insertBefore(el, feed.firstChild);
-      } else {
-        feed.appendChild(el);
-      }
-    }
-
-    updateCount();
+  function updateFooter(data) {
+    var el = document.getElementById('count');
+    if (!el) return;
+    var mrrStr = data.totalMRR >= 1000000
+      ? '$' + (data.totalMRR / 1000000).toFixed(1) + 'M'
+      : '$' + Math.round(data.totalMRR).toLocaleString();
+    el.textContent = data.startupCount + ' startups verified on TrustMRR \u00b7 ' + mrrStr + ' total MRR';
   }
 
   /* ── Show the feed ──────────────────────────────────────── */
-  function showFeed(cards) {
+  function showFeed(data) {
     document.getElementById('loading').style.display = 'none';
     document.getElementById('content').style.display = 'block';
     document.getElementById('footer').style.display = 'block';
-    renderInitial(cards);
-    updateCount();
+    updateCashBanner(data);
+    renderFeed(data);
+    updateFooter(data);
+    lastData = data;
   }
 
   /* ── Show empty state ───────────────────────────────────── */
@@ -985,13 +1708,13 @@
     if (scanning) {
       loading.innerHTML =
         '<div class="empty-state">' +
-          '<p><span class="scan-dot"></span>Scanning accounts</p>' +
-          '<div class="sub-text">The feed populates automatically. New cards will appear here.</div>' +
+          '<p><span class="scan-dot"></span>Syncing revenue data from TrustMRR...</p>' +
+          '<div class="sub-text">Startup data will appear here shortly.</div>' +
         '</div>';
     } else {
       loading.innerHTML =
         '<div class="empty-state">' +
-          '<p>No revenue moments yet</p>' +
+          '<p>No revenue data yet</p>' +
           '<div class="sub-text">Check back shortly.</div>' +
         '</div>';
     }
@@ -1007,9 +1730,9 @@
       var resp = await fetch('/api/feed');
       var data = await resp.json();
 
-      if (data.cards && data.cards.length > 0) {
+      if (data.startups && data.startups.length > 0) {
         feedLoaded = true;
-        showFeed(data.cards);
+        showFeed(data);
         return;
       }
 
@@ -1026,13 +1749,21 @@
       var resp = await fetch('/api/feed');
       var data = await resp.json();
 
-      if (!data.cards || !data.cards.length) return;
+      if (!data.startups || !data.startups.length) return;
 
       if (!feedLoaded) {
         feedLoaded = true;
-        showFeed(data.cards);
+        showFeed(data);
       } else {
-        addNew(data.cards);
+        // Re-render if data changed
+        var newJson = JSON.stringify(data.startups.length) + data.totalMRR;
+        var oldJson = lastData ? JSON.stringify(lastData.startups.length) + lastData.totalMRR : '';
+        if (newJson !== oldJson) {
+          renderFeed(data);
+          updateCashBanner(data);
+          updateFooter(data);
+          lastData = data;
+        }
       }
     } catch (err) {
       console.error('Refresh error:', err);

@@ -3,6 +3,7 @@ const https = require('https');
 const fs = require('fs');
 const path = require('path');
 const zlib = require('zlib');
+const crypto = require('crypto');
 
 /* ── Load .env ──────────────────────────────────────────── */
 const envPath = path.join(__dirname, '.env');
@@ -17,31 +18,257 @@ if (fs.existsSync(envPath)) {
 const PORT          = process.env.PORT || 3001;
 const TWITTER_KEY   = process.env.TWITTER_API_KEY || '';
 const TWITTER_HOST  = 'twitter-api45.p.rapidapi.com';
-const OPENAI_KEY    = process.env.OPENAI_API_KEY;
 const CACHE_DIR     = path.join(__dirname, '.cache');
-const SCAN_COOLDOWN = 60 * 60 * 1000;   // 1 hour per account
-const LOOP_INTERVAL = 5 * 60 * 1000;    // check for stale accounts every 5 min
+const SCAN_COOLDOWN = 60 * 60 * 1000;        // 1 hour per account (tweet scan)
+const LOOP_INTERVAL = 5 * 60 * 1000;         // check for stale tweet scans every 5 min
 
 if (!fs.existsSync(CACHE_DIR)) fs.mkdirSync(CACHE_DIR);
 
 /* ── In-memory state ────────────────────────────────────── */
-let memoryFeedCache = null;      // { cards, timestamp, json, gzipped }
+let memoryFeedCache = null;      // { json, gzipped }
 let scanInProgress  = false;
 let lastScanDone    = null;      // epoch ms
 const scanTimes     = new Map(); // screenname → epoch ms
 
-function setMemoryCache(cards) {
-  const payload = {
-    cards,
-    timestamp: Date.now(),
-    lastScan: lastScanDone,
-    scanning: scanInProgress,
-  };
-  const json = JSON.stringify(payload);
-  memoryFeedCache = { cards, timestamp: Date.now(), json, gzipped: zlib.gzipSync(json) };
+// TrustMRR primary data
+let trustmrrStartups = [];       // array of startup objects
+const latestTweets = new Map();  // handle → { summary, date, likes, views, bookmarks, media, tweetUrl }
+
+// Default featured ads (shown when fewer than 3 paid top-zone ads)
+const DEFAULT_FEATURED_ADS = [
+  {
+    id: 'default-mixelsai',
+    handle: 'MixelsAI',
+    saasName: 'Mixels AI',
+    description: 'Turn ideas into stunning pixel art with AI. Built for creators and indie devs.',
+    avatar: null,
+    mrr: '126',
+    url: 'https://trustmrr.com/startup/mixels-ai',
+    slug: 'mixels-ai',
+    isDefault: true,
+  },
+];
+
+// Ad slots
+const AD_SLOTS_FILE = path.join(CACHE_DIR, 'ad_slots.json');
+let adSlots = []; // active ad slots
+
+// Pending ads (payment records awaiting activation)
+const PENDING_ADS_FILE = path.join(CACHE_DIR, 'pending_ads.json');
+const pendingAds = new Map(); // handle (lowercase) → { handle, saasName, paidAt, sessionId }
+
+function loadPendingAds() {
+  try {
+    if (fs.existsSync(PENDING_ADS_FILE)) {
+      const data = JSON.parse(fs.readFileSync(PENDING_ADS_FILE, 'utf8'));
+      for (const [k, v] of Object.entries(data)) pendingAds.set(k, v);
+      console.log(`Pending ads loaded: ${pendingAds.size}`);
+    }
+  } catch (e) { /* skip */ }
 }
 
-/* ── PostgreSQL (optional — falls back to file cache) ──── */
+function savePendingAds() {
+  try {
+    const o = {};
+    for (const [k, v] of pendingAds) o[k] = v;
+    fs.writeFileSync(PENDING_ADS_FILE, JSON.stringify(o, null, 2));
+  } catch (e) { console.error('Failed to save pending ads:', e.message); }
+}
+
+function loadAdSlots() {
+  try {
+    if (fs.existsSync(AD_SLOTS_FILE)) {
+      adSlots = JSON.parse(fs.readFileSync(AD_SLOTS_FILE, 'utf8'));
+      console.log(`Ad slots loaded: ${adSlots.length}`);
+    }
+  } catch (e) { adSlots = []; }
+}
+
+function saveAdSlots() {
+  try {
+    fs.writeFileSync(AD_SLOTS_FILE, JSON.stringify(adSlots, null, 2));
+  } catch (e) { console.error('Failed to save ad slots:', e.message); }
+}
+
+function cleanupExpiredAds() {
+  const now = new Date().toISOString();
+  const before = adSlots.length;
+  const expired = adSlots.filter(function(a) { return a.expiresAt <= now; });
+  if (expired.length > 0) {
+    adSlots = adSlots.filter(function(a) { return a.expiresAt > now; });
+    saveAdSlots();
+    setMemoryCache();
+    for (var i = 0; i < expired.length; i++) {
+      console.log('[ads] Expired ad removed: @' + expired[i].handle + ' (' + expired[i].saasName + ')');
+    }
+    console.log('[ads] Cleanup: removed ' + expired.length + ' expired ad(s), ' + adSlots.length + ' remaining');
+  }
+}
+
+function cleanupStalePendingAds() {
+  const staleThreshold = 7 * 24 * 60 * 60 * 1000; // 7 days
+  const now = Date.now();
+  let removed = 0;
+  for (const [key, val] of pendingAds) {
+    const paidAt = new Date(val.paidAt).getTime();
+    if (now - paidAt > staleThreshold) {
+      pendingAds.delete(key);
+      removed++;
+      console.log('[ads] Stale pending ad removed: @' + val.handle);
+    }
+  }
+  if (removed > 0) {
+    savePendingAds();
+    console.log('[ads] Removed ' + removed + ' stale pending ad(s)');
+  }
+}
+
+async function enrichDefaultAds() {
+  for (const def of DEFAULT_FEATURED_ADS) {
+    if (!def.slug) continue;
+    try {
+      const html = await fetchUrl('https://trustmrr.com/startup/' + encodeURIComponent(def.slug));
+      const rscData = extractNextData(html);
+      const revM = rscData.match(/"currentLast30DaysRevenue"\s*:\s*([\d.]+)/);
+      if (revM) {
+        def.mrr = String(Math.round(parseFloat(revM[1])));
+        console.log(`[ads] Enriched ${def.saasName} MRR: $${def.mrr}`);
+      }
+    } catch (e) { /* skip — keep fallback value */ }
+  }
+}
+
+function getActiveAds() {
+  const now = new Date().toISOString();
+  const before = adSlots.length;
+  adSlots = adSlots.filter(function(a) { return a.expiresAt > now; });
+  if (adSlots.length !== before) saveAdSlots();
+  return adSlots;
+}
+
+function getAdsForFeed() {
+  var active = getActiveAds();
+  var top = [], feed = [];
+  for (var i = 0; i < active.length; i++) {
+    var a = active[i];
+    var obj = { id: a.id, handle: a.handle, saasName: a.saasName, description: a.description || '', avatar: a.avatar, mrr: a.mrr, askPrice: a.askPrice, url: a.url, slug: a.slug || null };
+    if (a.zone === 'top') top.push(obj);
+    else feed.push(obj);
+  }
+  // Fill remaining top slots: first with hardcoded defaults (enriched from TrustMRR), then fillers
+  var MAX_TOP = 3;
+  var FILLER_LIMIT = MAX_TOP; // fill all 3 featured slots
+  var usedHandles = {};
+  for (var u = 0; u < top.length; u++) usedHandles[top[u].handle.toLowerCase()] = true;
+
+  for (var d = 0; d < DEFAULT_FEATURED_ADS.length && top.length < FILLER_LIMIT; d++) {
+    var def = DEFAULT_FEATURED_ADS[d];
+    // Look up live MRR from TrustMRR data (by handle first, then by slug)
+    var liveData = trustmrrStartups.find(function(s) {
+      return s.handle && s.handle.toLowerCase() === def.handle.toLowerCase();
+    });
+    if (!liveData && def.slug) {
+      liveData = trustmrrStartups.find(function(s) {
+        return s.slug && s.slug === def.slug;
+      });
+    }
+    var liveMrr = (liveData && liveData.mrr) ? String(liveData.mrr) : def.mrr;
+    usedHandles[def.handle.toLowerCase()] = true;
+    top.push({ id: def.id, handle: def.handle, saasName: def.saasName, description: def.description || '', avatar: (liveData && liveData.avatar) || def.avatar, mrr: liveMrr, dailyRevenue: liveData ? liveData.dailyRevenue : 0, growth30d: (liveData && liveData.growth30d) || null, verified: (liveData && liveData.verified) || false, icon: (liveData && liveData.icon) || null, askPrice: '', url: def.url, slug: def.slug, isDefault: true });
+  }
+
+  // Always include a for-sale startup if one exists and there's room
+  if (top.length < FILLER_LIMIT && trustmrrStartups.length > 0) {
+    var forSalePool = trustmrrStartups.filter(function(s) {
+      return s.onSale && s.handle && s.slug && !usedHandles[s.handle.toLowerCase()];
+    }).sort(function(a, b) { return (b.mrr || 0) - (a.mrr || 0); });
+    if (forSalePool.length > 0) {
+      var salePick = forSalePool[Math.floor(Math.random() * Math.min(forSalePool.length, 5))];
+      usedHandles[salePick.handle.toLowerCase()] = true;
+      top.push({
+        id: 'forsale-' + salePick.handle.toLowerCase(),
+        handle: salePick.handle,
+        saasName: salePick.startupName || salePick.name || salePick.handle,
+        founderName: salePick.name || null,
+        description: salePick.description || '',
+        avatar: salePick.avatar || null,
+        icon: salePick.icon || null,
+        mrr: salePick.mrr ? String(salePick.mrr) : '',
+        dailyRevenue: salePick.dailyRevenue || 0,
+        growth30d: salePick.growth30d || null,
+        verified: salePick.verified || false,
+        onSale: true,
+        askingPrice: salePick.askingPrice || null,
+        askPrice: '',
+        url: salePick.slug ? 'https://trustmrr.com/startup/' + salePick.slug : '',
+        slug: salePick.slug || null,
+        isDefault: true,
+      });
+    }
+  }
+
+  // Fill remaining filler slots with random top-30 startups
+  if (top.length < FILLER_LIMIT && trustmrrStartups.length > 0) {
+    var sorted = trustmrrStartups.slice().sort(function(a, b) { return (b.mrr || 0) - (a.mrr || 0); });
+    var topPool = sorted.slice(0, Math.min(30, sorted.length));
+    var available = topPool.filter(function(s) { return s.handle && s.slug && s.description && !usedHandles[s.handle.toLowerCase()]; });
+    while (top.length < FILLER_LIMIT && available.length > 0) {
+      var pick = available.splice(Math.floor(Math.random() * available.length), 1)[0];
+      usedHandles[pick.handle.toLowerCase()] = true;
+      top.push({
+        id: 'filler-' + pick.handle.toLowerCase(),
+        handle: pick.handle,
+        saasName: pick.startupName || pick.name || pick.handle,
+        founderName: pick.name || null,
+        description: pick.description || '',
+        avatar: pick.avatar || null,
+        icon: pick.icon || null,
+        mrr: pick.mrr ? String(pick.mrr) : '',
+        dailyRevenue: pick.dailyRevenue || 0,
+        growth30d: pick.growth30d || null,
+        verified: pick.verified || false,
+        onSale: pick.onSale || false,
+        askingPrice: pick.askingPrice || null,
+        askPrice: '',
+        url: pick.slug ? 'https://trustmrr.com/startup/' + pick.slug : '',
+        slug: pick.slug || null,
+        isDefault: true,
+      });
+    }
+  }
+  return { top: top, feed: feed };
+}
+
+function buildFeedPayload() {
+  const startups = trustmrrStartups
+    .filter(s => s.dailyRevenue > 0)
+    .map(s => {
+      const tweet = latestTweets.get(s.handle.toLowerCase()) || null;
+      return { ...s, tweet };
+    });
+  startups.sort((a, b) => b.dailyRevenue - a.dailyRevenue);
+
+  const totalMRR = startups.reduce((sum, s) => sum + (s.mrr || 0), 0);
+  const totalDailyRevenue = Math.round(totalMRR / 30 * 100) / 100;
+
+  return {
+    startups,
+    ads: getAdsForFeed(),
+    totalDailyRevenue,
+    totalMRR,
+    startupCount: startups.length,
+    lastSync: lastScanDone ? new Date(lastScanDone).toISOString() : null,
+    scanning: scanInProgress,
+  };
+}
+
+function setMemoryCache() {
+  const payload = buildFeedPayload();
+  const json = JSON.stringify(payload);
+  memoryFeedCache = { json, gzipped: zlib.gzipSync(json) };
+}
+
+/* ── PostgreSQL (optional — keeps tweet storage) ────────── */
 let pool = null;
 
 async function initDb() {
@@ -88,24 +315,6 @@ async function ensureSchema() {
     )
   `);
   await pool.query(`
-    CREATE TABLE IF NOT EXISTS feed_cards (
-      id TEXT PRIMARY KEY,
-      handle TEXT,
-      name TEXT,
-      avatar TEXT,
-      summary TEXT,
-      score REAL,
-      likes INT DEFAULT 0,
-      views INT DEFAULT 0,
-      bookmarks INT DEFAULT 0,
-      date TEXT,
-      media TEXT,
-      created_at TIMESTAMPTZ DEFAULT NOW()
-    )
-  `);
-  // Add media column to existing tables
-  await pool.query(`ALTER TABLE feed_cards ADD COLUMN IF NOT EXISTS media TEXT`).catch(() => {});
-  await pool.query(`
     CREATE TABLE IF NOT EXISTS scan_state (
       screenname TEXT PRIMARY KEY,
       last_tweet_id TEXT,
@@ -113,7 +322,6 @@ async function ensureSchema() {
     )
   `);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_tweets_sn ON tweets(screenname)`);
-  await pool.query(`CREATE INDEX IF NOT EXISTS idx_fc_date ON feed_cards(created_at DESC)`);
   console.log('Schema ready');
 }
 
@@ -175,59 +383,6 @@ async function updateScanState(screenname, lastTweetId) {
   } catch (e) { /* skip */ }
 }
 
-async function getFeedCardsFromDb() {
-  if (!pool) return null;
-  try {
-    const r = await pool.query(
-      'SELECT id,handle,name,avatar,summary,score,likes,views,bookmarks,date,media FROM feed_cards ORDER BY created_at DESC'
-    );
-    if (!r.rows.length) return null;
-    return r.rows.map(row => ({
-      ...row,
-      media: row.media ? JSON.parse(row.media) : null,
-    }));
-  } catch (e) { return null; }
-}
-
-async function storeFeedCards(cards) {
-  if (!pool || !cards.length) return;
-  try {
-    const ids = [], hs = [], ns = [], avs = [], sums = [];
-    const scs = [], lks = [], vws = [], bks = [], dts = [], mds = [];
-    for (const c of cards) {
-      ids.push(c.id); hs.push(c.handle); ns.push(c.name);
-      avs.push(c.avatar); sums.push(c.summary); scs.push(c.score);
-      lks.push(c.likes); vws.push(c.views); bks.push(c.bookmarks);
-      dts.push(c.date); mds.push(c.media ? JSON.stringify(c.media) : null);
-    }
-    await pool.query(`
-      INSERT INTO feed_cards (id,handle,name,avatar,summary,score,likes,views,bookmarks,date,media)
-      SELECT * FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],
-        $6::real[],$7::int[],$8::int[],$9::int[],$10::text[],$11::text[])
-      ON CONFLICT (id) DO UPDATE SET
-        summary=EXCLUDED.summary, score=EXCLUDED.score,
-        likes=EXCLUDED.likes, views=EXCLUDED.views,
-        bookmarks=EXCLUDED.bookmarks, date=EXCLUDED.date,
-        media=EXCLUDED.media
-    `, [ids, hs, ns, avs, sums, scs, lks, vws, bks, dts, mds]);
-  } catch (err) {
-    for (const c of cards) {
-      try {
-        await pool.query(`
-          INSERT INTO feed_cards (id,handle,name,avatar,summary,score,likes,views,bookmarks,date,media)
-          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
-          ON CONFLICT (id) DO UPDATE SET
-            summary=EXCLUDED.summary, score=EXCLUDED.score,
-            likes=EXCLUDED.likes, views=EXCLUDED.views,
-            bookmarks=EXCLUDED.bookmarks, date=EXCLUDED.date,
-            media=EXCLUDED.media
-        `, [c.id, c.handle, c.name, c.avatar, c.summary, c.score, c.likes, c.views, c.bookmarks, c.date,
-            c.media ? JSON.stringify(c.media) : null]);
-      } catch (e) { /* skip */ }
-    }
-  }
-}
-
 /* ── File cache ─────────────────────────────────────────── */
 function cacheGet(name) {
   const p = path.join(CACHE_DIR, `${name}.json`);
@@ -249,7 +404,7 @@ function pruneCache() {
   try {
     for (const f of fs.readdirSync(CACHE_DIR)) {
       if (!f.endsWith('.json')) continue;
-      if (f === 'feed.json' || f === 'scan_times.json') continue;
+      if (f === 'trustmrr_data.json' || f === 'scan_times.json' || f === 'ad_slots.json' || f === 'pending_ads.json') continue;
       const full = path.join(CACHE_DIR, f);
       try {
         if (Date.now() - fs.statSync(full).mtimeMs > 2 * SCAN_COOLDOWN) fs.unlinkSync(full);
@@ -285,64 +440,6 @@ async function warmScanTimesFromDb() {
     console.log(`Scan state loaded for ${r.rows.length} accounts`);
   } catch (e) { /* skip */ }
 }
-
-/* ── Accounts ───────────────────────────────────────────── */
-const ACCOUNTS = [
-  // ── OG indie hackers & SaaS builders ─────────────────
-  'levelsio','marc_louvion','tdinh_me','dannypostmaa','mckaywrigley',
-  'bentossell','shpigford','thesamparr','dvassallo','nathanbarry',
-  'gregisenberg','ShaanVP','arvidkahl','thepatwalls','csallen',
-  'marckohlbrugge','noahkagan','robwalling','hnshah','randfish',
-  'yongfook','tibo_maker','damengchen','ajlkn','dagorenouf',
-  'jakobgreenfeld','kiwicopple','panphora','PierreDeWulf','Insharamin',
-  'yannick_veys','SimonHoiberg','stephsmithio','dru_riley','monicalent',
-  'thisiskp_','mubashariqbal','brian_lovin','mijustin','coreyhainesco',
-  'jasonlk','nathanlatka','danmartell','steli','Pauline_Cx',
-  'MarieMartens','petecodes','alexwestco','TaraReed_','chddaniel',
-  'johnrushx','yoheinakajima','JimRaptis','mattiapomelli','pjrvs',
-  'tylermking','lunchbag','MattCowlin',
-  'rileybrown_ai','florinpop1705','pbteja1998','sobedominik','czue',
-  'qayyumrajan','louispereira','NotechAna','saasmakermac','dylan_hey',
-  'DmytroKrasun','helloitsolly','itsjustamar','philostar','ankit_saas',
-  'code_rams','phuctm97','nico_jeannen','jasonleowsg','JhumanJ',
-  'pie6k','daniel_nguyenx','PaulYacoubian','_rchase_','SlamingDev',
-  'mikestrives','MatthewBerman','patio11','dharmesh','lennysan',
-  'swyx','karpathy',
-  // ── High-revenue builders ($1M+ ARR / exits) ────────
-  'RetentionAdam',   // Retention.com $22M ARR, RB2B $5M ARR
-  'GuillaumeMbh',    // Lemlist/Lempire $28M ARR bootstrapped
-  'adamwathan',      // Tailwind CSS, Tailwind UI $2M+ launch
-  'jayhoovy',        // Stan Store $33M ARR
-  'brettfromdj',     // DesignJoy $1M+ ARR solo designer
-  'thejustinwelsh',  // $10M solopreneur, 89% margins
-  'wagslane',        // Boot.dev $10M ARR bootstrapped
-  'Patticus',        // ProfitWell, sold for $200M+
-  'asmartbear',      // WP Engine founder
-  'getajobmike',     // Sidekiq $7M/yr solo SaaS
-  'steveschoger',    // Refactoring UI $2.5M+ revenue
-  'chris_orlob',     // Grew Gong to $7B, now pclub.io
-  'JamesonCamp',     // Sold company for $30M+
-  // ── Mid-revenue builders ($10K-$100K MRR) ───────────
-  'samuelrdt',       // 3 SaaS products at $35K MRR
-  'SamyDindane',     // Hypefury $70K+ MRR
-  'euboid',          // Senja co-founder $83K+ MRR
-  'jackfriks',       // PostBridge $18K/month
-  'CameronTrew',     // Kleo $62K MRR, Mentions $20K MRR
-  'KateBour',        // $400K/yr solo business
-  'connorshowler',   // $3M+ profit, 8+ yrs digital
-  'vishalkumar',     // OneUp $1M+/year
-  'DavisBaer',       // OneUp co-founder
-  // ── Build in public / micro-SaaS ────────────────────
-  'noahwbragg',      // Sold Potion for $300K
-  'thelifeofrishi',  // Pika screenshot tool
-  'gouthamjay8',     // Famewall, sold Mailboat
-  'maoxai_',         // AI app to $4K MRR in 100 days
-  'courtkland',      // Indie Hackers founder (sold to Stripe)
-  'rameerez',        // Indie hacker builder
-  'DanKoe',          // Solopreneur, courses & community
-  'patflynn',        // Smart Passive Income, transparent reports
-  'maxprilutskiy',   // Notionlytics
-];
 
 /* ── Response helpers ───────────────────────────────────── */
 function sendJson(req, res, code, obj) {
@@ -396,7 +493,7 @@ function preloadStatic() {
   }
 }
 
-/* ── HTTPS helper ───────────────────────────────────────── */
+/* ── HTTPS helpers ──────────────────────────────────────── */
 function httpsReq(opts, body) {
   return new Promise((resolve, reject) => {
     const r = https.request(opts, res => {
@@ -412,6 +509,395 @@ function httpsReq(opts, body) {
     if (body) r.write(body);
     r.end();
   });
+}
+
+function fetchUrl(url) {
+  return new Promise((resolve, reject) => {
+    https.get(url, { headers: { 'User-Agent': 'WhileYouSlept/1.0' } }, res => {
+      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+        return fetchUrl(res.headers.location).then(resolve, reject);
+      }
+      let body = '';
+      res.on('data', c => body += c);
+      res.on('end', () => resolve(body));
+      res.on('error', reject);
+    }).on('error', reject);
+  });
+}
+
+/* ── Stripe webhook signature verification ─────────────── */
+function verifyStripeSignature(payload, sigHeader, secret) {
+  if (!sigHeader || !secret) return false;
+  const parts = {};
+  for (const item of sigHeader.split(',')) {
+    const [k, v] = item.split('=');
+    if (k && v) parts[k.trim()] = v.trim();
+  }
+  const timestamp = parts.t;
+  const sig = parts.v1;
+  if (!timestamp || !sig) return false;
+  // Reject timestamps older than 5 minutes
+  if (Math.abs(Date.now() / 1000 - parseInt(timestamp)) > 300) return false;
+  const expected = crypto.createHmac('sha256', secret)
+    .update(timestamp + '.' + payload)
+    .digest('hex');
+  try {
+    return crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected));
+  } catch (e) { return false; }
+}
+
+/* ── TrustMRR Data Scraper ──────────────────────────────── */
+const TRUSTMRR_DATA_FILE = path.join(CACHE_DIR, 'trustmrr_data.json');
+
+function loadTrustMrrData() {
+  try {
+    if (fs.existsSync(TRUSTMRR_DATA_FILE)) {
+      const data = JSON.parse(fs.readFileSync(TRUSTMRR_DATA_FILE, 'utf8'));
+      if (data.startups && data.startups.length) {
+        trustmrrStartups = data.startups;
+        console.log(`TrustMRR data loaded from cache: ${trustmrrStartups.length} startups`);
+      }
+    }
+  } catch (e) { /* skip */ }
+}
+
+function saveTrustMrrData(startups) {
+  try {
+    fs.writeFileSync(TRUSTMRR_DATA_FILE, JSON.stringify({
+      startups,
+      updated: new Date().toISOString(),
+    }));
+  } catch (e) { console.error('Failed to save TrustMRR data:', e.message); }
+}
+
+// Extract Next.js RSC data chunks from HTML
+function extractNextData(html) {
+  const chunks = [];
+  const re = /self\.__next_f\.push\(\s*\[[\d,]*"([^]*?)"\s*\]\s*\)/g;
+  let m;
+  while ((m = re.exec(html)) !== null) {
+    try {
+      // Unescape the JSON-encoded string
+      const decoded = m[1]
+        .replace(/\\n/g, '\n')
+        .replace(/\\r/g, '\r')
+        .replace(/\\t/g, '\t')
+        .replace(/\\"/g, '"')
+        .replace(/\\\\/g, '\\');
+      chunks.push(decoded);
+    } catch (e) { /* skip malformed chunk */ }
+  }
+  return chunks.join('\n');
+}
+
+// Parse dollar amounts from text
+function parseDollarAmount(text) {
+  if (!text) return 0;
+  const m = text.match(/\$\s*([\d,]+(?:\.\d+)?)\s*([KkMm])?/);
+  if (!m) return 0;
+  let v = parseFloat(m[1].replace(/,/g, ''));
+  if (m[2] && /[Kk]/.test(m[2])) v *= 1000;
+  if (m[2] && /[Mm]/.test(m[2])) v *= 1000000;
+  return v;
+}
+
+async function scrapeLeaderboard() {
+  const html = await fetchUrl('https://trustmrr.com');
+  const rscData = extractNextData(html);
+
+  const startups = [];
+
+  // The RSC data contains a JSON array of startup objects, each starting with "_id".
+  // Fields per object: name, slug, icon, xHandle, xFounderName, currentLast30DaysRevenue, etc.
+  // Split on object boundaries to isolate each startup.
+  const idRe = /\{["\s]*_id["\s]*:\s*"/g;
+  let nm;
+  const positions = [];
+  while ((nm = idRe.exec(rscData)) !== null) {
+    positions.push(nm.index);
+  }
+
+  const seenSlugs = new Set();
+  for (let i = 0; i < positions.length; i++) {
+    const start = positions[i];
+    const end = i < positions.length - 1 ? positions[i + 1] : Math.min(rscData.length, start + 3000);
+    const segment = rscData.substring(start, end);
+
+    // Must have revenue data to be a startup listing
+    const revM = segment.match(/"currentLast30DaysRevenue"\s*:\s*([\d.]+)/);
+    if (!revM) continue;
+
+    const slugM = segment.match(/"slug"\s*:\s*"([^"]+)"/);
+    if (!slugM || seenSlugs.has(slugM[1])) continue;
+
+    const nameM = segment.match(/"name"\s*:\s*"([^"]{1,120})"/);
+    const handleM = segment.match(/"xHandle"\s*:\s*"([^"]{1,30})"/);
+    const founderM = segment.match(/"xFounderName"\s*:\s*"([^"]{1,80})"/);
+    const iconM = segment.match(/"icon"\s*:\s*"([^"]+)"/);
+    const growthRaw = segment.match(/"growth30d"\s*:\s*([-\d.]+)/);
+    const onSaleM = segment.match(/"onSale"\s*:\s*(true|false)/);
+    const askM = segment.match(/"askingPrice"\s*:\s*([\d.]+)/);
+    const descM = segment.match(/"description"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+
+    seenSlugs.add(slugM[1]);
+    startups.push({
+      name: nameM ? nameM[1] : slugM[1],
+      slug: slugM[1],
+      mrr: parseFloat(revM[1]) || 0,
+      growth30d: growthRaw ? parseFloat(growthRaw[1]) : null,
+      icon: iconM ? iconM[1] : null,
+      handle: handleM ? handleM[1] : null,
+      founderName: founderM ? founderM[1] : null,
+      onSale: onSaleM ? onSaleM[1] === 'true' : false,
+      askingPrice: askM ? parseFloat(askM[1]) : null,
+      description: descM ? descM[1].replace(/\\n/g, ' ').replace(/\\"/g, '"').replace(/\\\\/g, '\\').trim().slice(0, 120) : null,
+    });
+  }
+
+  // Fallback: collect all handles from the full HTML for extra coverage
+  const allHandles = [];
+  const unavatarRe2 = /unavatar\.io\/x\/([A-Za-z0-9_]{1,15})/g;
+  while ((nm = unavatarRe2.exec(html)) !== null) {
+    const h = nm[1];
+    if (!allHandles.includes(h)) allHandles.push(h);
+  }
+
+  console.log(`[trustmrr] Leaderboard: ${startups.length} startups, ${startups.filter(s => s.handle).length} with handles`);
+  return { startups, handles: allHandles };
+}
+
+async function scrapeOpenPage() {
+  const html = await fetchUrl('https://trustmrr.com/open');
+  const rscData = extractNextData(html);
+
+  const posts = [];
+
+  // Anchor on "tweetUrl" (unique per post) and find associated fields nearby
+  const tweetUrlRe = /"tweetUrl"\s*:\s*"([^"]+)"/g;
+  let nm;
+  const tweetPositions = [];
+  while ((nm = tweetUrlRe.exec(rscData)) !== null) {
+    tweetPositions.push({ url: nm[1], pos: nm.index });
+  }
+
+  const seenUrls = new Set();
+  for (const tweet of tweetPositions) {
+    if (seenUrls.has(tweet.url)) continue;
+    seenUrls.add(tweet.url);
+
+    const WINDOW = 2000;
+    const start = Math.max(0, tweet.pos - WINDOW);
+    const end = Math.min(rscData.length, tweet.pos + WINDOW);
+    const win = rscData.substring(start, end);
+
+    const usernameM = win.match(/"username"\s*:\s*"([^"]+)"/);
+    if (!usernameM) continue;
+
+    const imgM = win.match(/"userProfileImage"\s*:\s*"([^"]+)"/);
+    const textM = win.match(/"text"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+    const likesM = win.match(/"likeCount"\s*:\s*(\d+)/);
+    const viewsM = win.match(/"viewCount"\s*:\s*(\d+)/);
+    const verifiedM = win.match(/"isVerifiedStartup"\s*:\s*(true|false)/);
+
+    let text = '';
+    if (textM) {
+      try {
+        text = textM[1].replace(/\\n/g, '\n').replace(/\\"/g, '"').replace(/\\\\/g, '\\');
+      } catch (e) {
+        text = textM[1];
+      }
+    }
+
+    posts.push({
+      username: usernameM[1],
+      avatar: imgM ? imgM[1] : null,
+      text,
+      tweetUrl: tweet.url,
+      likeCount: likesM ? parseInt(likesM[1]) : 0,
+      viewCount: viewsM ? parseInt(viewsM[1]) : 0,
+      isVerified: verifiedM ? verifiedM[1] === 'true' : false,
+      parsedMrr: parseDollarAmount(text),
+    });
+  }
+
+  // Also extract handles from x.com/handle and twitter.com/handle patterns
+  const handleSet = new Set();
+  const handlePatterns = [
+    /(?:twitter\.com|x\.com)\/([A-Za-z0-9_]{1,15})(?:[?"'\s/]|$)/g,
+  ];
+  for (const re of handlePatterns) {
+    while ((nm = re.exec(html)) !== null) {
+      const h = nm[1];
+      if (!['home','explore','search','settings','i','intent','share','hashtag'].includes(h.toLowerCase())) {
+        handleSet.add(h);
+      }
+    }
+  }
+
+  console.log(`[trustmrr] Open page: ${posts.length} posts, ${posts.filter(p => p.avatar).length} with avatars`);
+  return { posts, extraHandles: Array.from(handleSet) };
+}
+
+async function fetchStartupDescription(slug) {
+  try {
+    const html = await fetchUrl('https://trustmrr.com/startup/' + encodeURIComponent(slug));
+    // Look for the description paragraph with TrustMRR's styling
+    const match = html.match(/<p[^>]*class="[^"]*text-muted-foreground[^"]*"[^>]*>([\s\S]*?)<\/p>/);
+    if (match) {
+      return match[1].replace(/<[^>]+>/g, '').trim().slice(0, 120);
+    }
+    // Fallback: try RSC data on the page
+    const rscData = extractNextData(html);
+    const descM = rscData.match(/"description"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+    if (descM) {
+      return descM[1].replace(/\\n/g, ' ').replace(/\\"/g, '"').replace(/\\\\/g, '\\').trim().slice(0, 120);
+    }
+    return null;
+  } catch (e) { return null; }
+}
+
+async function syncTrustMrrData() {
+  try {
+    console.log('[trustmrr] Syncing startup data...');
+
+    // Scrape both pages in parallel
+    const [leaderboard, openPage] = await Promise.all([
+      scrapeLeaderboard().catch(e => { console.error('[trustmrr] Leaderboard scrape failed:', e.message); return { startups: [], handles: [] }; }),
+      scrapeOpenPage().catch(e => { console.error('[trustmrr] Open page scrape failed:', e.message); return { posts: [], extraHandles: [] }; }),
+    ]);
+
+    // Build lookup maps from open page data
+    const openByHandle = new Map(); // lowercase handle → post data
+    for (const post of openPage.posts) {
+      if (post.username) {
+        openByHandle.set(post.username.toLowerCase(), post);
+      }
+    }
+
+    // Merge: each leaderboard startup now carries its own handle (from proximity extraction)
+    const merged = new Map(); // lowercase handle → startup record
+
+    for (const s of leaderboard.startups) {
+      const handle = s.handle;
+      if (!handle) continue;
+
+      const key = handle.toLowerCase();
+      if (merged.has(key)) continue; // first occurrence wins (highest on page = most relevant)
+
+      const openData = openByHandle.get(key);
+
+      merged.set(key, {
+        handle,
+        name: s.founderName || openData?.username || handle,
+        startupName: s.name || null,
+        description: s.description || null,
+        avatar: openData?.avatar || null,
+        mrr: s.mrr || 0,
+        dailyRevenue: Math.round((s.mrr || 0) / 30 * 100) / 100,
+        growth30d: s.growth30d || null,
+        verified: openData?.isVerified || false,
+        slug: s.slug || null,
+        icon: s.icon || null,
+        onSale: s.onSale || false,
+        askingPrice: s.askingPrice || null,
+        updated: new Date().toISOString(),
+      });
+    }
+
+    // Add startups from open page that aren't in leaderboard
+    for (const post of openPage.posts) {
+      if (!post.username) continue;
+      const key = post.username.toLowerCase();
+      if (merged.has(key)) continue;
+
+      const mrr = post.parsedMrr || 0;
+      merged.set(key, {
+        handle: post.username,
+        name: post.username,
+        startupName: null,
+        avatar: post.avatar || null,
+        mrr,
+        dailyRevenue: Math.round(mrr / 30 * 100) / 100,
+        growth30d: null,
+        verified: post.isVerified || false,
+        slug: null,
+        icon: null,
+        updated: new Date().toISOString(),
+      });
+    }
+
+    // Add any extra handles from the open page that weren't in posts
+    for (const h of openPage.extraHandles) {
+      const key = h.toLowerCase();
+      if (merged.has(key)) continue;
+      merged.set(key, {
+        handle: h,
+        name: h,
+        startupName: null,
+        avatar: null,
+        mrr: 0,
+        dailyRevenue: 0,
+        growth30d: null,
+        verified: false,
+        slug: null,
+        icon: null,
+        updated: new Date().toISOString(),
+      });
+    }
+
+    let startups = Array.from(merged.values());
+
+    // Filter out $0 MRR startups at the source
+    startups = startups.filter(s => s.mrr > 0);
+
+    // Fetch descriptions for top 30 startups missing them
+    if (startups.length > 0) {
+      const sorted = startups.slice().sort((a, b) => (b.mrr || 0) - (a.mrr || 0));
+      const needDesc = sorted.slice(0, 30).filter(s => !s.description && s.slug);
+      if (needDesc.length > 0) {
+        console.log(`[trustmrr] Fetching descriptions for ${needDesc.length} top startups...`);
+        for (const s of needDesc) {
+          const desc = await fetchStartupDescription(s.slug);
+          if (desc) s.description = desc;
+          // Small delay to avoid hammering TrustMRR
+          await new Promise(r => setTimeout(r, 300));
+        }
+        console.log(`[trustmrr] Descriptions fetched: ${needDesc.filter(s => s.description).length}/${needDesc.length}`);
+      }
+    }
+
+    if (startups.length > 0) {
+      trustmrrStartups = startups;
+      saveTrustMrrData(startups);
+      setMemoryCache();
+      console.log(`[trustmrr] Synced ${startups.length} startups with revenue data`);
+      const totalMRR = startups.reduce((sum, s) => sum + s.mrr, 0);
+      console.log(`[trustmrr] Total MRR: $${Math.round(totalMRR).toLocaleString()}`);
+    } else {
+      console.log('[trustmrr] No startups found, keeping existing cache');
+    }
+  } catch (e) {
+    console.error('[trustmrr] Sync failed:', e.message);
+  }
+}
+
+/* ── Daily TrustMRR sync scheduling ────────────────────── */
+function scheduleNextSync() {
+  // Calculate ms until 00:01 AM Eastern Time
+  const now = new Date();
+  const etStr = now.toLocaleString('en-US', { timeZone: 'America/New_York' });
+  const etNow = new Date(etStr);
+  const target = new Date(etStr);
+  target.setDate(target.getDate() + 1);
+  target.setHours(0, 1, 0, 0); // 12:01 AM next day
+  const msUntil = target.getTime() - etNow.getTime();
+  const minutes = Math.round(msUntil / 60000);
+  console.log(`[trustmrr] Next sync scheduled in ${minutes} minutes (12:01 AM ET)`);
+  setTimeout(async () => {
+    await syncTrustMrrData();
+    console.log(`[trustmrr] Daily sync complete: ${trustmrrStartups.length} startups`);
+    scheduleNextSync();
+  }, msUntil);
 }
 
 /* ── Twitter API ────────────────────────────────────────── */
@@ -431,59 +917,34 @@ async function fetchTimeline(screenname) {
 }
 
 /* ── Strict filter: ONLY 3 categories ──────────────────── */
-/*  1. Monthly MRR / revenue update (with screenshot)
- *  2. Sold / acquired company + price
- *  3. SaaS monthly earnings report
- *  Everything else is rejected.
- */
 function isMoneyTweet(text, hasMedia) {
   if (!text) return false;
 
   // ── Hard rejections ──────────────────────────────────
-  // Goals, intentions, hypotheticals
   const isNoise = /(?:my goal|hoping to|want to (?:hit|make|reach)|aiming for|planning to|going to (?:make|hit|reach)|trying to (?:reach|hit|get)|dream of|would love to|working towards|plan is to|aspir|by (?:end of|year end|next year|EOY)|get (?:my |this |the |it )?(?:.*?)to \$)/i.test(text);
   if (isNoise) return false;
-  // Advice, threads, lessons, reflections, motivational musings
   const isAdvice = /(?:^how to|^why you|^stop |^don't|should you|^the secret|^my advice|^tip:|^thread|^lesson|\d+\s+(?:biggest|best|top|key|important)\s+(?:lessons?|tips?|things?|ways?|steps?|rules?)|\d+\s+ways\s+I|should have (?:done|started|built)|I learned to|sure-shot way|sure.?fire way|best way to find|find your next|thought .* problems would go away)/i.test(text);
   if (isAdvice) return false;
   const isPromo = /(?:^check out|^join |^sign up|^use code|^discount|^giveaway|FOR SALE|APP FOR SALE|selling (?:my |the |this ))/i.test(text);
   if (isPromo) return false;
-  // Spending / paying money, not making it
   const isSpending = /(?:i pay|pay (?:for|to )|paying (?:for|~?\$)|spend(?:ing)?|cost (?:me|us)|bought|purchased|invested in|raised \$|fundrais|hiring|salary|struggling|might not spend)/i.test(text);
   if (isSpending) return false;
-  // Hypotheticals, third party, quoting prices, questions about buying
   const isThirdParty = /(?:can buy|could buy|you can|you'll|imagine|if you|if i (?:wanted|could|just)|i could probably|for only|priced at|worth \$|valued at|starting at|costs? \$|cheap|expensive|why would|how would|what if|anyone (?:here )?(?:buying|selling|looking))/i.test(text);
   if (isThirdParty) return false;
-  // Generic observations about others' numbers, not the poster's own
   const isCommentary = /(?:might not|wouldn't|won't|doesn't seem|not (?:possible|appealing)|end up doing)/i.test(text);
   if (isCommentary) return false;
-  // RT about someone else's revenue — not the poster's own achievement
   const isRT = /^RT @/i.test(text);
   if (isRT) return false;
-  // VC/finance commentary about other companies (not the poster's own product)
   const isFinanceCommentary = /(?:series [A-F]|tender offer|valuation (?:increase|decrease|drop)|IPO|cap table|fundrais|due diligence|term sheet|pre.?money|post.?money|runway|burn rate)/i.test(text);
   if (isFinanceCommentary) return false;
 
-  // ── Category 1: MRR/ARR update (their own, with $ amount) ──
-  // e.g. "$22k MRR", "hit $100k ARR", "our MRR is $50k", "$8m ARR"
   const isMrrUpdate = /(?:\$[\d,.]+[KkMm]?\s*(?:MRR|ARR)|\b(?:MRR|ARR)\s*(?::|is|hit|at|of|reached|crossed|passed)?\s*\$[\d,.]+)/i.test(text);
-
-  // ── Category 2: Sold / acquired company ──
-  // e.g. "sold my company for $2m", "acquired for $500k", "sold two startups for $8m"
   const isSold = /(?:sold (?:my |the |our |a )?(?:company|startup|saas|app|business|product)|acquired for|acquisition.*\$|exit(?:ed)? (?:for|at) \$|\bsold\b.*(?:startup|company|saas).*\$)/i.test(text);
-
-  // ── Category 3: Monthly SaaS earnings (their own) ──
-  // e.g. "made $150k this month", "$50k/mo", "did $30k in January", "revenue hit $100k"
   const isMonthlySaas = (
-    // "$X/mo" or "$X/month" or "$X this month" or "$X in [month name]" or "$X last month"
     /\$[\d,.]+[KkMm]?\s*(?:\/mo(?:nth)?|this month|last month|per month)/i.test(text) ||
-    // "made/earned/did/generated $X" — first person earnings
     /(?:^|\b)(?:i |we |I've |we've )?(?:made|earned|did|generated|grossed|netted|cleared|brought in|pulling in)\s+(?:~?\$[\d,.]+[KkMm]?|\$[\d,.]+[KkMm]?)/i.test(text) ||
-    // "revenue [hit/reached/crossed/at] $X"
     /\brevenue\b.*\$[\d,.]+/i.test(text) ||
-    // "in the last 30 days i made"
     /(?:last|this|past)\s+(?:\d+\s+)?(?:days?|month|months|week)\s.*(?:made|earned|did|generated|revenue)\s.*\$/i.test(text) ||
-    // "[month name] revenue/income: $X" or "[month name] was $X"
     /(?:january|february|march|april|may|june|july|august|september|october|november|december)\s+(?:\d{4}\s+)?(?:revenue|income|was|did|earned|made).*\$/i.test(text)
   );
 
@@ -527,7 +988,6 @@ function fomoScore(tweet) {
 
   if (/\b(?:SOLD|ACQUIRED|acquisition|exit)\b/i.test(text)) score += 15;
   if (/(?:MRR|ARR)/i.test(text)) score += 5;
-  // Bonus for having a screenshot (proof)
   if (hasMedia) score += 5;
 
   return Math.round(score * 10) / 10;
@@ -537,36 +997,32 @@ function fomoScore(tweet) {
 function cleanTweetText(text) {
   if (!text) return '';
   return text
-    .replace(/https?:\/\/t\.co\/\S+/g, '')   // strip t.co links
-    .replace(/&amp;/g, '&')                   // decode HTML entities from Twitter
+    .replace(/https?:\/\/t\.co\/\S+/g, '')
+    .replace(/&amp;/g, '&')
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')
     .replace(/&quot;/g, '"')
     .replace(/&#39;/g, "'")
-    .replace(/\n{3,}/g, '\n\n')              // collapse excessive newlines
+    .replace(/\n{3,}/g, '\n\n')
     .trim();
 }
 
 /* ── Extract money snippet from tweet ──────────────────── */
 function extractMoneySnippet(text) {
   if (!text) return '';
-  // Short tweets — use as-is
   if (text.length <= 200) return text;
 
-  // Split into lines, then further split long lines into sentences
   const raw = text.split(/\n+/).map(s => s.trim()).filter(Boolean);
   const parts = [];
   for (const line of raw) {
     if (line.length <= 200) {
       parts.push(line);
     } else {
-      // Split long paragraphs into sentences
       const sentences = line.split(/(?<=[.!?])\s+/);
       for (const s of sentences) parts.push(s.trim());
     }
   }
 
-  // Score each part for money content
   const scored = parts.map(s => {
     let score = 0;
     if (/\$[\d,]+[KkMm]?/.test(s)) score += 10;
@@ -578,11 +1034,9 @@ function extractMoneySnippet(text) {
     return { text: s, score };
   });
 
-  // Grab lines with money signals
   const money = scored.filter(s => s.score > 0).sort((a, b) => b.score - a.score);
   if (!money.length) return text.slice(0, 200).trim();
 
-  // Take top money lines, cap each line at 200 chars, total at 280
   let snippet = money[0].text.slice(0, 200);
   for (let i = 1; i < money.length; i++) {
     const next = money[i].text.slice(0, 200);
@@ -594,65 +1048,112 @@ function extractMoneySnippet(text) {
   return snippet.trim();
 }
 
-/* ── Background scan (runs independently of user requests) ─ */
+/* ── Background scan — scoped to TrustMRR handles only ── */
 async function backgroundScan() {
   if (scanInProgress) return;
+  if (!TWITTER_KEY) {
+    console.log('[scan] No Twitter API key, skipping tweet scan');
+    return;
+  }
+
+  // Only scan handles that appear in trustmrrStartups
+  const handles = trustmrrStartups
+    .filter(s => s.handle)
+    .map(s => s.handle);
+
+  if (!handles.length) {
+    console.log('[scan] No TrustMRR handles to scan for tweets');
+    return;
+  }
+
   scanInProgress = true;
-  if (memoryFeedCache) setMemoryCache(memoryFeedCache.cards);
+  setMemoryCache();
 
   try {
-    // Load current feed
-    const existing = memoryFeedCache?.cards || await getFeedCardsFromDb() || cacheGet('feed') || [];
-    const existingIds = new Set(existing.map(c => c.id));
-
-    // Ensure memory cache is warm
-    if (!memoryFeedCache && existing.length) setMemoryCache(existing);
-
-    // Find accounts due for a scan (not scanned in the last hour)
-    const stale = ACCOUNTS.filter(a => {
+    // Find accounts due for a scan
+    const stale = handles.filter(a => {
       const last = scanTimes.get(a) || 0;
       return Date.now() - last >= SCAN_COOLDOWN;
     });
 
     if (!stale.length) {
-      console.log('[scan] All accounts scanned recently, nothing to do');
+      console.log('[scan] All TrustMRR handles scanned recently');
       scanInProgress = false;
-      if (memoryFeedCache) setMemoryCache(memoryFeedCache.cards);
+      setMemoryCache();
       return;
     }
 
-    console.log(`[scan] ${stale.length}/${ACCOUNTS.length} accounts due for refresh`);
+    console.log(`[scan] ${stale.length}/${handles.length} handles due for tweet refresh`);
 
-    const newTweets = [];
     let errors = 0;
     let scanned = 0;
+    const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
 
     for (const account of stale) {
       scanned++;
       try {
         const data = await fetchTimeline(account);
         if (data && data.timeline) {
-          const known = await getKnownTweetIds(account);
-          let found = 0;
+          // Find best FOMO tweet from last 7 days
+          let bestTweet = null;
+          let bestScore = 0;
 
           for (const tweet of data.timeline) {
-            // Skip replies — only original posts
             if (tweet.reply_to) continue;
-            // Skip tweets already in DB or already in feed — never re-process
-            if (known.has(tweet.tweet_id) || existingIds.has(tweet.tweet_id)) continue;
+            const tweetDate = new Date(tweet.created_at).getTime();
+            if (tweetDate < sevenDaysAgo) continue;
+
             const score = fomoScore(tweet);
-            if (score > 0) { newTweets.push({ ...tweet, _score: score }); found++; }
+            if (score > bestScore) {
+              bestScore = score;
+              bestTweet = tweet;
+            }
           }
 
-          // Store ALL timeline tweets in DB (dedup by tweet_id)
+          // Store best tweet in latestTweets map
+          if (bestTweet && bestScore > 0) {
+            const cleaned = cleanTweetText(bestTweet.text || '');
+            const summary = extractMoneySnippet(cleaned);
+            const a = bestTweet.author || {};
+
+            // Extract media
+            const tweetMedia = [];
+            if (bestTweet.media) {
+              if (bestTweet.media.photo) {
+                for (const p of bestTweet.media.photo) {
+                  if (p.media_url_https) tweetMedia.push({ type: 'photo', url: p.media_url_https });
+                }
+              }
+              if (bestTweet.media.video) {
+                for (const v of bestTweet.media.video) {
+                  const mp4s = (v.variants || [])
+                    .filter(x => x.content_type === 'video/mp4')
+                    .sort((x, y) => (y.bitrate || 0) - (x.bitrate || 0));
+                  tweetMedia.push({
+                    type: 'video',
+                    thumb: v.media_url_https || '',
+                    url: mp4s.length ? mp4s[0].url : null,
+                  });
+                }
+              }
+            }
+
+            latestTweets.set(account.toLowerCase(), {
+              summary,
+              date: bestTweet.created_at || '',
+              likes: bestTweet.favorites || 0,
+              views: parseInt(bestTweet.views) || 0,
+              bookmarks: bestTweet.bookmarks || 0,
+              media: tweetMedia.length ? tweetMedia : null,
+              tweetUrl: `https://x.com/${a.screen_name || account}/status/${bestTweet.tweet_id}`,
+            });
+          }
+
+          // Store timeline in DB
           if (data.timeline.length) {
             await storeTweets(data.timeline, account);
             await updateScanState(account, data.timeline[0].tweet_id);
           }
-
-          if (found > 0) console.log(`  [${scanned}/${stale.length}] @${account}: ${found} new`);
-        } else {
-          console.log(`  [${scanned}/${stale.length}] @${account}: no data`);
         }
         scanTimes.set(account, Date.now());
       } catch (e) {
@@ -660,126 +1161,718 @@ async function backgroundScan() {
         errors++;
       }
 
-      // Rate-limit delay when we hit the actual API (cache age < 2s means fresh fetch)
       if (cacheAge(`tweets_${account}`) < 2000) {
         await new Promise(r => setTimeout(r, 400));
       }
     }
 
     saveScanTimes();
-    console.log(`[scan] Found ${newTweets.length} new money tweets (${errors} errors)`);
-
-    if (!newTweets.length) {
-      lastScanDone = Date.now();
-      scanInProgress = false;
-      if (memoryFeedCache) setMemoryCache(memoryFeedCache.cards);
-      return;
-    }
-
-    // Use actual tweet text (no AI rewriting — every word shown is from the real post)
-    newTweets.sort((a, b) => b._score - a._score);
-    const top = newTweets.slice(0, 50);
-
-    // Build new feed cards
-    const newCards = [];
-    for (let i = 0; i < top.length; i++) {
-      const t = top[i];
-      const cleaned = cleanTweetText(t.text || '');
-      const text = extractMoneySnippet(cleaned);
-      if (!text) continue;
-      const a = t.author || {};
-
-      // Extract media (photos + video thumbnails)
-      const tweetMedia = [];
-      if (t.media) {
-        if (t.media.photo) {
-          for (const p of t.media.photo) {
-            if (p.media_url_https) tweetMedia.push({ type: 'photo', url: p.media_url_https });
-          }
-        }
-        if (t.media.video) {
-          for (const v of t.media.video) {
-            const mp4s = (v.variants || [])
-              .filter(x => x.content_type === 'video/mp4')
-              .sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0));
-            tweetMedia.push({
-              type: 'video',
-              thumb: v.media_url_https || '',
-              url: mp4s.length ? mp4s[0].url : null,
-            });
-          }
-        }
-      }
-
-      newCards.push({
-        id: t.tweet_id,
-        handle: a.screen_name || '',
-        name: a.name || '',
-        avatar: (a.avatar || '').replace('_normal', '_bigger'),
-        summary: text,
-        score: t._score,
-        likes: t.favorites || 0,
-        views: parseInt(t.views) || 0,
-        bookmarks: t.bookmarks || 0,
-        date: t.created_at || '',
-        media: tweetMedia.length ? tweetMedia : null,
-      });
-    }
-
-    // Merge: new cards added, existing preserved. Sort newest first.
-    const map = new Map();
-    for (const c of existing) map.set(c.id, c);
-    for (const c of newCards) map.set(c.id, c);
-    let merged = Array.from(map.values());
-    merged.sort((a, b) => new Date(b.date) - new Date(a.date));
-
-    // Deduplicate: if same handle has near-identical cards, keep only newest
-    const byHandle = new Map();
-    for (const c of merged) {
-      if (!byHandle.has(c.handle)) byHandle.set(c.handle, []);
-      byHandle.get(c.handle).push(c);
-    }
-    const deduped = [];
-    for (const [handle, cards] of byHandle) {
-      // Sort by date descending so newest cards are "kept" first
-      cards.sort((a, b) => new Date(b.date) - new Date(a.date));
-      const kept = [];
-      for (const card of cards) {
-        // Extract dollar figures to compare similarity
-        const nums = (card.summary.match(/\$[\d,.]+[KkMm]?/g) || []).sort().join('|');
-        // Extract "DAY X" or "Day X" pattern for series detection
-        const dayMatch = card.summary.match(/\bDAY\s+(\d+)\b/i);
-        const dayTag = dayMatch ? 'DAY_SERIES' : null;
-        const isDupe = kept.some(k => {
-          const kNums = (k.summary.match(/\$[\d,.]+[KkMm]?/g) || []).sort().join('|');
-          // Same dollar figures = duplicate
-          if (nums && nums === kNums) return true;
-          // Same "DAY X" series from same handle = keep only newest
-          if (dayTag) {
-            const kDay = k.summary.match(/\bDAY\s+(\d+)\b/i);
-            if (kDay) return true;
-          }
-          return false;
-        });
-        if (!isDupe) kept.push(card);
-      }
-      deduped.push(...kept);
-    }
-    merged = deduped.sort((a, b) => new Date(b.date) - new Date(a.date));
-
-    // Persist everywhere
-    await storeFeedCards(merged);
-    cacheSet('feed', merged);
     lastScanDone = Date.now();
-    setMemoryCache(merged);
-    console.log(`[scan] Feed updated: ${merged.length} total (+${newCards.length} new)\n`);
+    setMemoryCache();
+    console.log(`[scan] Tweet scan done: ${scanned} accounts, ${latestTweets.size} with FOMO tweets (${errors} errors)`);
 
   } catch (e) {
     console.error('[scan] Error:', e.message);
   } finally {
     scanInProgress = false;
-    if (memoryFeedCache) setMemoryCache(memoryFeedCache.cards);
+    setMemoryCache();
   }
+}
+
+/* ── Inline HTML pages ──────────────────────────────────── */
+function getSuccessPageHtml() {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Activate Your Ad — WhileYouSlept.lol</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #fafafa;
+    color: #000;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .container {
+    max-width: 440px;
+    width: 90%;
+    background: #fff;
+    border-radius: 12px;
+    border: 1px solid #eee;
+    padding: 36px;
+    margin: 40px auto;
+  }
+  h1 {
+    font-family: 'Arial Black', 'Helvetica Neue', Arial, sans-serif;
+    font-size: 1.3rem;
+    font-weight: 900;
+    letter-spacing: -0.5px;
+    margin-bottom: 6px;
+  }
+  .subtitle {
+    font-size: 0.8rem;
+    font-weight: 500;
+    color: #666;
+    margin-bottom: 24px;
+    line-height: 1.4;
+  }
+  label {
+    display: block;
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: #999;
+    margin-bottom: 6px;
+  }
+  input, textarea {
+    width: 100%;
+    padding: 12px 14px;
+    font-size: 0.95rem;
+    font-weight: 600;
+    font-family: inherit;
+    border: 2px solid #e0e0e0;
+    border-radius: 8px;
+    outline: none;
+    margin-bottom: 16px;
+    transition: border-color 0.15s;
+  }
+  input:focus, textarea:focus { border-color: #16a34a; }
+  input[readonly] { background: #f9f9f9; color: #666; }
+  textarea { resize: vertical; min-height: 60px; }
+  .char-count {
+    font-size: 0.65rem;
+    font-weight: 600;
+    color: #bbb;
+    text-align: right;
+    margin-top: -12px;
+    margin-bottom: 16px;
+  }
+  .char-count.warn { color: #d97706; }
+  .char-count.over { color: #dc2626; }
+  button {
+    width: 100%;
+    padding: 14px;
+    background: #16a34a;
+    color: #fff;
+    font-size: 0.85rem;
+    font-weight: 700;
+    font-family: inherit;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+  button:hover { background: #15803d; }
+  button:disabled { background: #ccc; cursor: not-allowed; }
+  .success-msg {
+    display: none;
+    text-align: center;
+    padding: 20px 0;
+  }
+  .success-msg h2 {
+    font-size: 1.1rem;
+    font-weight: 800;
+    color: #16a34a;
+    margin-bottom: 8px;
+  }
+  .success-msg p {
+    font-size: 0.8rem;
+    color: #666;
+    margin-bottom: 16px;
+    line-height: 1.4;
+  }
+  .success-msg a {
+    color: #16a34a;
+    font-weight: 700;
+    text-decoration: none;
+  }
+  .success-msg a:hover { text-decoration: underline; }
+  .error-msg {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: #dc2626;
+    margin-bottom: 12px;
+    display: none;
+  }
+  .payment-banner {
+    background: #dcfce7;
+    color: #16a34a;
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-align: center;
+    padding: 8px 12px;
+    border-radius: 6px;
+    margin-bottom: 16px;
+  }
+  .status-msg {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: #d97706;
+    margin-bottom: 12px;
+    display: none;
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <div id="formSection">
+    <div class="payment-banner" id="paymentBanner">Payment confirmed</div>
+    <h1>Activate Your Featured Spot</h1>
+    <p class="subtitle">Complete your details below to go live on WhileYouSlept.lol</p>
+
+    <label>X Handle</label>
+    <input type="text" id="handleField" readonly>
+
+    <label>SaaS Name</label>
+    <input type="text" id="saasField" readonly>
+
+    <label>TrustMRR Profile URL</label>
+    <input type="text" id="urlField" placeholder="https://trustmrr.com/startup/your-startup">
+
+    <label>Business Description</label>
+    <textarea id="descField" maxlength="80" placeholder="What does your SaaS do? (80 chars max)"></textarea>
+    <div class="char-count" id="charCount">0 / 80</div>
+
+    <div class="error-msg" id="errorMsg"></div>
+    <div class="status-msg" id="statusMsg"></div>
+    <button id="activateBtn">Activate My Ad</button>
+  </div>
+
+  <div class="success-msg" id="successMsg">
+    <h2>You're live!</h2>
+    <p>Your featured card is now showing on the homepage. It will run for 7 days.</p>
+    <a href="/">Back to WhileYouSlept.lol</a>
+  </div>
+</div>
+
+<script>
+(function() {
+  var handle = localStorage.getItem('pendingAdHandle') || '';
+  var saas = localStorage.getItem('pendingAdSaas') || '';
+  document.getElementById('handleField').value = handle ? '@' + handle : '';
+  document.getElementById('saasField').value = saas;
+
+  var descField = document.getElementById('descField');
+  var charCount = document.getElementById('charCount');
+
+  descField.addEventListener('input', function() {
+    var len = descField.value.length;
+    charCount.textContent = len + ' / 80';
+    charCount.className = 'char-count' + (len > 70 ? (len > 80 ? ' over' : ' warn') : '');
+  });
+
+  function attemptActivation(payload, retries, btn, errorEl, statusEl) {
+    fetch('/api/ad/activate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+    .then(function(r) {
+      return r.json().then(function(data) { return { status: r.status, data: data }; });
+    })
+    .then(function(result) {
+      if (result.data.ok) {
+        document.getElementById('formSection').style.display = 'none';
+        document.getElementById('successMsg').style.display = 'block';
+        localStorage.removeItem('pendingAdHandle');
+        localStorage.removeItem('pendingAdSaas');
+        return;
+      }
+      if (result.status === 402 && retries > 0) {
+        statusEl.textContent = 'Waiting for payment confirmation... (' + retries + ' retries left)';
+        statusEl.style.display = 'block';
+        errorEl.style.display = 'none';
+        setTimeout(function() {
+          attemptActivation(payload, retries - 1, btn, errorEl, statusEl);
+        }, 3000);
+        return;
+      }
+      statusEl.style.display = 'none';
+      errorEl.textContent = result.data.error || 'Something went wrong.';
+      errorEl.style.display = 'block';
+      btn.disabled = false;
+      btn.textContent = 'Activate My Ad';
+    })
+    .catch(function() {
+      statusEl.style.display = 'none';
+      errorEl.textContent = 'Network error. Please try again.';
+      errorEl.style.display = 'block';
+      btn.disabled = false;
+      btn.textContent = 'Activate My Ad';
+    });
+  }
+
+  document.getElementById('activateBtn').addEventListener('click', function() {
+    var btn = this;
+    var errorEl = document.getElementById('errorMsg');
+    var statusEl = document.getElementById('statusMsg');
+    errorEl.style.display = 'none';
+    statusEl.style.display = 'none';
+    btn.disabled = true;
+    btn.textContent = 'Activating...';
+
+    var payload = {
+      handle: handle,
+      saasName: saas,
+      trustmrrUrl: document.getElementById('urlField').value.trim(),
+      description: descField.value.slice(0, 80),
+    };
+
+    attemptActivation(payload, 5, btn, errorEl, statusEl);
+  });
+})();
+</script>
+</body>
+</html>`;
+}
+
+function getFaqPageHtml() {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FAQ — WhileYouSlept.lol | SaaS Revenue Tracker, MRR Leaderboard, Startups For Sale</title>
+<meta name="description" content="Frequently asked questions about WhileYouSlept.lol — the daily SaaS revenue tracker powered by TrustMRR. Find the highest MRR startups, SaaS businesses for sale, and verified monthly recurring revenue data.">
+<meta name="keywords" content="SaaS for sale, highest MRR, TrustMRR, monthly recurring revenue, buy SaaS business, startup revenue, MRR leaderboard, SaaS acquisition, indie hacker revenue, verified MRR">
+<meta property="og:title" content="FAQ — WhileYouSlept.lol">
+<meta property="og:description" content="Everything you need to know about the daily SaaS revenue tracker. Find startups for sale, verified MRR data, and the highest-earning SaaS businesses.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://whileyouslept.lol/faq">
+<link rel="canonical" href="https://whileyouslept.lol/faq">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💸</text></svg>">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #fafafa;
+    color: #000;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    min-height: 100vh;
+    padding: 0 20px;
+  }
+  .page {
+    max-width: 720px;
+    margin: 0 auto;
+    padding: 48px 0 80px;
+  }
+  h1 {
+    font-family: 'Arial Black', 'Helvetica Neue', Arial, sans-serif;
+    font-size: 2rem;
+    font-weight: 900;
+    letter-spacing: -1px;
+    text-transform: uppercase;
+    margin-bottom: 8px;
+  }
+  .page-sub {
+    font-size: 0.85rem;
+    font-weight: 500;
+    color: #666;
+    margin-bottom: 40px;
+    line-height: 1.5;
+  }
+  .page-sub a { color: #16a34a; font-weight: 700; text-decoration: none; }
+  .page-sub a:hover { text-decoration: underline; }
+  .faq-item {
+    margin-bottom: 32px;
+  }
+  .faq-item h2 {
+    font-size: 1rem;
+    font-weight: 800;
+    letter-spacing: -0.3px;
+    margin-bottom: 8px;
+    line-height: 1.3;
+  }
+  .faq-item p {
+    font-size: 0.85rem;
+    font-weight: 500;
+    color: #444;
+    line-height: 1.6;
+  }
+  .faq-item p a { color: #16a34a; font-weight: 700; text-decoration: none; }
+  .faq-item p a:hover { text-decoration: underline; }
+  .divider {
+    border: none;
+    border-top: 1px solid #eee;
+    margin: 32px 0;
+  }
+  .back-link {
+    display: inline-block;
+    margin-top: 32px;
+    font-size: 0.8rem;
+    font-weight: 700;
+    color: #999;
+    text-decoration: none;
+  }
+  .back-link:hover { color: #000; text-decoration: underline; }
+  @media (max-width: 600px) {
+    .page { padding: 28px 0 60px; }
+    h1 { font-size: 1.5rem; }
+    .faq-item h2 { font-size: 0.92rem; }
+    .faq-item p { font-size: 0.8rem; }
+  }
+</style>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  "mainEntity": [
+    {
+      "@type": "Question",
+      "name": "What is WhileYouSlept.lol?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "WhileYouSlept.lol is a daily revenue tracker that shows how much money SaaS startups are making every day. It pulls verified MRR (Monthly Recurring Revenue) data from TrustMRR and highlights the latest revenue milestones, acquisitions, and growth numbers shared by founders on X (Twitter)."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "What is TrustMRR and how is revenue verified?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "TrustMRR is a platform where SaaS founders verify their monthly recurring revenue by connecting their Stripe or payment processor. WhileYouSlept.lol uses TrustMRR as its data source, so all MRR figures shown on the site are verified, not self-reported."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "How do I find SaaS businesses for sale?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Startups listed for sale on TrustMRR are marked with a 'For Sale' badge on WhileYouSlept.lol. You can spot them in the feed and in the featured section at the top of the page. Click through to TrustMRR for details on asking price, verified revenue, and how to make an offer."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Which startups have the highest MRR?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "WhileYouSlept.lol ranks all startups by daily revenue (MRR divided by 30). The top earners appear first in the feed. Cards expand on hover to show monthly MRR, 30-day growth percentage, and verified status. You can also browse the full leaderboard on TrustMRR.com."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "What does MRR mean?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "MRR stands for Monthly Recurring Revenue — the predictable income a SaaS business earns every month from subscriptions. It is the most common metric for valuing and comparing subscription-based software businesses. ARR (Annual Recurring Revenue) is MRR multiplied by 12."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "How often is the data updated?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Startup revenue data is synced from TrustMRR daily at midnight Eastern Time. Founder tweets are scanned hourly for the latest revenue milestones, acquisition announcements, and growth updates."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Can I buy a SaaS business through this site?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "WhileYouSlept.lol is a discovery tool — it helps you find SaaS businesses for sale with verified revenue. Startups marked 'For Sale' link directly to their TrustMRR profile where you can see the asking price, revenue history, and contact the founder to negotiate a deal."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "How can I advertise my SaaS on WhileYouSlept.lol?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Click 'Advertise' in the header or footer to get a featured card at the top of the page for $49/week. Your startup will be shown to hundreds of founders, indie hackers, and SaaS buyers who visit daily. Payment is handled securely through Stripe."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "How is this different from other SaaS marketplaces?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Unlike marketplaces like Acquire.com or MicroAcquire, WhileYouSlept.lol is not a marketplace — it is a real-time revenue feed. It combines verified MRR data from TrustMRR with live founder tweets to show what is actually happening in the SaaS world right now. Think of it as a daily scoreboard for SaaS founders."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "What SaaS revenue milestones are tracked?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "The feed highlights three types of milestones: MRR/ARR updates (e.g. hitting $10K MRR), SaaS acquisitions and exits (companies sold for a specific amount), and monthly revenue reports shared by founders. Only tweets with real dollar amounts are included — goals, advice, and speculation are filtered out."
+      }
+    }
+  ]
+}
+</script>
+</head>
+<body>
+<div class="page">
+  <h1>Frequently Asked Questions</h1>
+  <p class="page-sub">Everything you need to know about <a href="/">WhileYouSlept.lol</a> — the daily SaaS revenue tracker powered by <a href="https://trustmrr.com" target="_blank" rel="noopener">TrustMRR</a>.</p>
+
+  <div class="faq-item">
+    <h2>What is WhileYouSlept.lol?</h2>
+    <p>WhileYouSlept.lol is a daily revenue tracker that shows how much money SaaS startups are making every day. It pulls verified MRR (Monthly Recurring Revenue) data from <a href="https://trustmrr.com" target="_blank" rel="noopener">TrustMRR</a> and highlights the latest revenue milestones, acquisitions, and growth numbers shared by founders on X (Twitter).</p>
+  </div>
+
+  <hr class="divider">
+
+  <div class="faq-item">
+    <h2>What is TrustMRR and how is revenue verified?</h2>
+    <p>TrustMRR is a platform where SaaS founders verify their monthly recurring revenue by connecting their Stripe or payment processor. WhileYouSlept.lol uses TrustMRR as its data source, so all MRR figures shown on the site are verified — not self-reported.</p>
+  </div>
+
+  <hr class="divider">
+
+  <div class="faq-item">
+    <h2>How do I find SaaS businesses for sale?</h2>
+    <p>Startups listed for sale on TrustMRR are marked with a <strong>"For Sale"</strong> badge on WhileYouSlept.lol. You can spot them in the feed and in the featured section at the top of the page. Click through to TrustMRR for details on asking price, verified revenue, and how to make an offer.</p>
+  </div>
+
+  <hr class="divider">
+
+  <div class="faq-item">
+    <h2>Which startups have the highest MRR?</h2>
+    <p>WhileYouSlept.lol ranks all startups by daily revenue (MRR divided by 30). The top earners appear first in the feed. Cards expand on hover to show monthly MRR, 30-day growth percentage, and verified status. You can also browse the full leaderboard on <a href="https://trustmrr.com" target="_blank" rel="noopener">TrustMRR.com</a>.</p>
+  </div>
+
+  <hr class="divider">
+
+  <div class="faq-item">
+    <h2>What does MRR mean?</h2>
+    <p>MRR stands for Monthly Recurring Revenue — the predictable income a SaaS business earns every month from subscriptions. It is the most common metric for valuing and comparing subscription-based software businesses. ARR (Annual Recurring Revenue) is MRR multiplied by 12.</p>
+  </div>
+
+  <hr class="divider">
+
+  <div class="faq-item">
+    <h2>How often is the data updated?</h2>
+    <p>Startup revenue data is synced from TrustMRR daily at midnight Eastern Time. Founder tweets are scanned hourly for the latest revenue milestones, acquisition announcements, and growth updates.</p>
+  </div>
+
+  <hr class="divider">
+
+  <div class="faq-item">
+    <h2>Can I buy a SaaS business through this site?</h2>
+    <p>WhileYouSlept.lol is a discovery tool — it helps you find SaaS businesses for sale with verified revenue. Startups marked "For Sale" link directly to their TrustMRR profile where you can see the asking price, revenue history, and contact the founder to negotiate a deal.</p>
+  </div>
+
+  <hr class="divider">
+
+  <div class="faq-item">
+    <h2>How can I advertise my SaaS here?</h2>
+    <p>Click <strong>"Advertise"</strong> on the <a href="/">homepage</a> to get a featured card at the top of the page for $49/week. Your startup will be shown to hundreds of founders, indie hackers, and SaaS buyers who visit daily. Payment is handled securely through Stripe.</p>
+  </div>
+
+  <hr class="divider">
+
+  <div class="faq-item">
+    <h2>How is this different from other SaaS marketplaces?</h2>
+    <p>Unlike marketplaces like Acquire.com or MicroAcquire, WhileYouSlept.lol is not a marketplace — it is a real-time revenue feed. It combines verified MRR data from TrustMRR with live founder tweets to show what is actually happening in the SaaS world right now. Think of it as a daily scoreboard for SaaS founders.</p>
+  </div>
+
+  <hr class="divider">
+
+  <div class="faq-item">
+    <h2>What SaaS revenue milestones are tracked?</h2>
+    <p>The feed highlights three types of milestones: MRR/ARR updates (e.g. hitting $10K MRR), SaaS acquisitions and exits (companies sold for a specific amount), and monthly revenue reports shared by founders. Only tweets with real dollar amounts are included — goals, advice, and speculation are filtered out.</p>
+  </div>
+
+  <a href="/" class="back-link">&larr; Back to WhileYouSlept.lol</a>
+</div>
+</body>
+</html>`;
+}
+
+function getDevDashboardHtml() {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ad Slots — WhileYouSlept.lol</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #fafafa;
+    color: #000;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    min-height: 100vh;
+    padding: 40px 20px;
+  }
+  .container {
+    max-width: 960px;
+    margin: 0 auto;
+  }
+  h1 {
+    font-family: 'Arial Black', 'Helvetica Neue', Arial, sans-serif;
+    font-size: 1.4rem;
+    font-weight: 900;
+    letter-spacing: -0.5px;
+    margin-bottom: 6px;
+  }
+  .subtitle {
+    font-size: 0.8rem;
+    color: #666;
+    margin-bottom: 24px;
+  }
+  .summary {
+    display: flex;
+    gap: 24px;
+    margin-bottom: 24px;
+    flex-wrap: wrap;
+  }
+  .summary-stat {
+    background: #fff;
+    border: 1px solid #eee;
+    border-radius: 8px;
+    padding: 16px 20px;
+    min-width: 120px;
+  }
+  .summary-stat .val {
+    font-size: 1.3rem;
+    font-weight: 800;
+    letter-spacing: -0.5px;
+  }
+  .summary-stat .lbl {
+    font-size: 0.65rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: #999;
+    margin-top: 2px;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    background: #fff;
+    border-radius: 8px;
+    overflow: hidden;
+    border: 1px solid #eee;
+  }
+  th {
+    text-align: left;
+    padding: 10px 14px;
+    font-size: 0.65rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: #999;
+    background: #fafafa;
+    border-bottom: 1px solid #eee;
+  }
+  td {
+    padding: 10px 14px;
+    font-size: 0.8rem;
+    font-weight: 500;
+    border-bottom: 1px solid #f5f5f5;
+    vertical-align: top;
+  }
+  tr:last-child td { border-bottom: none; }
+  tr.active td { background: #f0fdf4; }
+  tr.expired td { color: #aaa; }
+  .badge {
+    display: inline-block;
+    font-size: 0.6rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    padding: 2px 6px;
+    border-radius: 4px;
+  }
+  .badge.active { background: #dcfce7; color: #16a34a; }
+  .badge.expired { background: #f3f4f6; color: #9ca3af; }
+  .desc-cell {
+    max-width: 180px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 0.72rem;
+    color: #666;
+  }
+  .back-link {
+    display: inline-block;
+    margin-top: 20px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: #999;
+    text-decoration: none;
+  }
+  .back-link:hover { color: #000; text-decoration: underline; }
+  .loading-msg {
+    padding: 40px;
+    text-align: center;
+    font-size: 0.85rem;
+    color: #999;
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>Ad Slots</h1>
+  <p class="subtitle">WhileYouSlept.lol — featured ad slots overview</p>
+
+  <div class="summary" id="summary"></div>
+  <div id="tableWrap"><div class="loading-msg">Loading...</div></div>
+  <a href="/" class="back-link">&larr; Back to homepage</a>
+</div>
+
+<script>
+(function() {
+  fetch('/api/dev/ads')
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      var slots = data.slots || [];
+      var activeCount = slots.filter(function(s) { return s.active; }).length;
+      var expiredCount = slots.length - activeCount;
+      var revenue = activeCount * 49;
+
+      var summaryEl = document.getElementById('summary');
+      summaryEl.innerHTML =
+        '<div class="summary-stat"><div class="val">' + slots.length + '</div><div class="lbl">Total Slots</div></div>' +
+        '<div class="summary-stat"><div class="val">' + activeCount + '</div><div class="lbl">Active</div></div>' +
+        '<div class="summary-stat"><div class="val">' + expiredCount + '</div><div class="lbl">Expired</div></div>' +
+        '<div class="summary-stat"><div class="val">$' + revenue + '</div><div class="lbl">Weekly Revenue</div></div>';
+
+      if (!slots.length) {
+        document.getElementById('tableWrap').innerHTML = '<div class="loading-msg">No ad slots yet.</div>';
+        return;
+      }
+
+      var html = '<table><thead><tr>' +
+        '<th>SaaS Name</th><th>Handle</th><th>Description</th><th>URL</th><th>Started</th><th>Expires</th><th>Status</th>' +
+        '</tr></thead><tbody>';
+
+      for (var i = 0; i < slots.length; i++) {
+        var s = slots[i];
+        var cls = s.active ? 'active' : 'expired';
+        var started = s.startedAt ? new Date(s.startedAt).toLocaleDateString() : '—';
+        var expires = s.expiresAt ? new Date(s.expiresAt).toLocaleDateString() : '—';
+        var urlDisplay = s.url ? '<a href="' + s.url.replace(/"/g, '&quot;') + '" target="_blank" style="color:#16a34a;text-decoration:none;font-size:0.72rem;">Link</a>' : '—';
+        html += '<tr class="' + cls + '">' +
+          '<td><strong>' + (s.saasName || '—') + '</strong></td>' +
+          '<td>@' + (s.handle || '—') + '</td>' +
+          '<td class="desc-cell" title="' + (s.description || '').replace(/"/g, '&quot;') + '">' + (s.description || '—') + '</td>' +
+          '<td>' + urlDisplay + '</td>' +
+          '<td>' + started + '</td>' +
+          '<td>' + expires + '</td>' +
+          '<td><span class="badge ' + cls + '">' + (s.active ? 'Active' : 'Expired') + '</span></td>' +
+          '</tr>';
+      }
+
+      html += '</tbody></table>';
+      document.getElementById('tableWrap').innerHTML = html;
+    })
+    .catch(function() {
+      document.getElementById('tableWrap').innerHTML = '<div class="loading-msg">Failed to load data.</div>';
+    });
+})();
+</script>
+</body>
+</html>`;
 }
 
 /* ── HTTP server ────────────────────────────────────────── */
@@ -791,7 +1884,8 @@ const server = http.createServer(async (req, res) => {
   if (url.pathname === '/health') {
     return sendJson(req, res, 200, {
       status: 'ok',
-      cards: memoryFeedCache?.cards?.length || 0,
+      startups: trustmrrStartups.length,
+      tweetsLoaded: latestTweets.size,
       scanning: scanInProgress,
     });
   }
@@ -799,6 +1893,7 @@ const server = http.createServer(async (req, res) => {
   // Checkout — redirect to Stripe with handle
   if (url.pathname === '/api/checkout') {
     const handle = (url.searchParams.get('handle') || '').replace(/^@/, '').trim();
+    const saas = (url.searchParams.get('saas') || '').trim();
     if (!handle) {
       res.writeHead(400, { 'Content-Type': 'text/plain' });
       return res.end('Missing handle');
@@ -809,37 +1904,257 @@ const server = http.createServer(async (req, res) => {
       return res.end('Checkout not configured');
     }
     const sep = stripeLink.includes('?') ? '&' : '?';
-    const dest = `${stripeLink}${sep}client_reference_id=${encodeURIComponent(handle)}`;
+    const refId = saas ? `${handle}|${saas}` : handle;
+    const dest = `${stripeLink}${sep}client_reference_id=${encodeURIComponent(refId)}`;
     res.writeHead(302, { Location: dest });
     return res.end();
   }
 
-  // Feed API — READ-ONLY: serves from cache, never triggers a scan
+  // Stripe webhook
+  if (url.pathname === '/api/stripe/webhook' && req.method === 'POST') {
+    let body = '';
+    req.on('data', function(c) { body += c; if (body.length > 65536) { req.destroy(); } });
+    req.on('end', function() {
+      const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET || '';
+      const sigHeader = req.headers['stripe-signature'] || '';
+      if (!STRIPE_WEBHOOK_SECRET || !verifyStripeSignature(body, sigHeader, STRIPE_WEBHOOK_SECRET)) {
+        console.log('[stripe] Webhook signature verification failed');
+        res.writeHead(400);
+        return res.end('Invalid signature');
+      }
+      try {
+        const event = JSON.parse(body);
+        if (event.type === 'checkout.session.completed') {
+          const session = event.data && event.data.object;
+          const refId = session && session.client_reference_id;
+          if (refId) {
+            const parts = refId.split('|');
+            const handle = parts[0].replace(/^@/, '').trim();
+            const saasName = parts[1] || '';
+            const key = handle.toLowerCase();
+            pendingAds.set(key, {
+              handle,
+              saasName,
+              paidAt: new Date().toISOString(),
+              sessionId: session.id || null,
+            });
+            savePendingAds();
+            console.log(`[stripe] Payment recorded for @${handle} (${saasName})`);
+          }
+        }
+        res.writeHead(200);
+        res.end('ok');
+      } catch (e) {
+        console.error('[stripe] Webhook parse error:', e.message);
+        res.writeHead(400);
+        res.end('Invalid JSON');
+      }
+    });
+    return;
+  }
+
+  // Feed API — serves TrustMRR startup data + optional tweets
   if (url.pathname === '/api/feed') {
-    // 1. Memory cache (sub-ms)
     if (sendCachedFeed(req, res)) return;
 
-    // 2. Try DB
-    const db = await getFeedCardsFromDb();
-    if (db && db.length) {
-      setMemoryCache(db);
+    // Nothing cached yet — build fresh
+    if (trustmrrStartups.length) {
+      setMemoryCache();
       return sendCachedFeed(req, res);
     }
 
-    // 3. Try file
-    const file = cacheGet('feed');
-    if (file && file.length) {
-      setMemoryCache(file);
-      return sendCachedFeed(req, res);
-    }
-
-    // 4. Nothing yet — first deploy, scan in progress
+    // No data yet — first sync in progress
     return sendJson(req, res, 200, {
-      cards: [],
-      timestamp: Date.now(),
-      lastScan: null,
+      startups: [],
+      ads: getAdsForFeed(),
+      totalDailyRevenue: 0,
+      totalMRR: 0,
+      startupCount: 0,
+      lastSync: null,
       scanning: scanInProgress,
     });
+  }
+
+  // ── Admin ad slot API ─────────────────────────────────
+  const ADMIN_SECRET = process.env.ADMIN_SECRET || '';
+
+  if (url.pathname === '/api/admin/ads' && req.method === 'POST') {
+    let body = '';
+    req.on('data', function(c) { body += c; });
+    req.on('end', function() {
+      try {
+        var d = JSON.parse(body);
+        if (!ADMIN_SECRET || d.secret !== ADMIN_SECRET) return sendJson(req, res, 401, { error: 'Unauthorized' });
+        if (!d.zone || !d.handle || !d.saasName) return sendJson(req, res, 400, { error: 'Missing required fields' });
+        var id = Math.random().toString(36).slice(2, 8);
+        var weeks = parseInt(d.weeks) || 1;
+        var now = new Date();
+        var expires = new Date(now.getTime() + weeks * 7 * 24 * 60 * 60 * 1000);
+        var desc = (d.description || '').slice(0, 80);
+        var slot = {
+          id: id,
+          zone: d.zone === 'feed' ? 'feed' : 'top',
+          handle: d.handle,
+          saasName: d.saasName,
+          description: desc,
+          avatar: d.avatar || null,
+          mrr: d.mrr || '',
+          askPrice: d.askPrice || '',
+          url: d.url || '',
+          slug: d.slug || null,
+          startedAt: now.toISOString(),
+          expiresAt: expires.toISOString(),
+        };
+        adSlots.push(slot);
+        saveAdSlots();
+        setMemoryCache();
+        return sendJson(req, res, 200, { ok: true, slot: slot });
+      } catch (e) {
+        return sendJson(req, res, 400, { error: 'Invalid JSON' });
+      }
+    });
+    return;
+  }
+
+  if (url.pathname === '/api/admin/ads' && req.method === 'GET') {
+    var secret = url.searchParams.get('secret');
+    if (!ADMIN_SECRET || secret !== ADMIN_SECRET) return sendJson(req, res, 401, { error: 'Unauthorized' });
+    var now = new Date().toISOString();
+    var all = adSlots.map(function(a) {
+      return Object.assign({}, a, { active: a.expiresAt > now });
+    });
+    return sendJson(req, res, 200, { slots: all });
+  }
+
+  if (url.pathname.startsWith('/api/admin/ads/') && req.method === 'DELETE') {
+    var secret = url.searchParams.get('secret');
+    if (!ADMIN_SECRET || secret !== ADMIN_SECRET) return sendJson(req, res, 401, { error: 'Unauthorized' });
+    var adId = url.pathname.split('/').pop();
+    var before = adSlots.length;
+    adSlots = adSlots.filter(function(a) { return a.id !== adId; });
+    if (adSlots.length < before) {
+      saveAdSlots();
+      setMemoryCache();
+      return sendJson(req, res, 200, { ok: true, deleted: adId });
+    }
+    return sendJson(req, res, 404, { error: 'Not found' });
+  }
+
+  // ── Self-service ad activation (gated behind payment) ────
+  if (url.pathname === '/api/ad/activate' && req.method === 'POST') {
+    let body = '';
+    req.on('data', function(c) { body += c; if (body.length > 4096) { req.destroy(); } });
+    req.on('end', function() {
+      try {
+        var d = JSON.parse(body);
+        var handle = (d.handle || '').replace(/^@/, '').trim();
+        var saasName = (d.saasName || '').trim();
+        var trustmrrUrl = (d.trustmrrUrl || '').trim();
+        var description = (d.description || '').slice(0, 80);
+
+        if (!handle) return sendJson(req, res, 400, { error: 'Missing handle' });
+        if (!saasName) return sendJson(req, res, 400, { error: 'Missing saasName' });
+        if (description.length > 80) return sendJson(req, res, 400, { error: 'Description must be 80 chars or less' });
+
+        // Verify payment exists
+        var key = handle.toLowerCase();
+        var payment = pendingAds.get(key);
+        if (!payment) {
+          var checkoutUrl = process.env.STRIPE_LINK || '';
+          return sendJson(req, res, 402, {
+            error: 'Payment not found. Please complete checkout first.',
+            checkoutUrl: checkoutUrl || undefined,
+          });
+        }
+
+        // Look up startup data from TrustMRR for avatar/MRR
+        var startupData = trustmrrStartups.find(function(s) {
+          return s.handle && s.handle.toLowerCase() === key;
+        });
+
+        var id = Math.random().toString(36).slice(2, 8);
+        var now = new Date();
+        var expires = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000); // 1 week
+
+        // Extract slug from trustmrrUrl if provided
+        var slug = null;
+        if (trustmrrUrl) {
+          var slugMatch = trustmrrUrl.match(/trustmrr\.com\/startup\/([^/?#]+)/);
+          if (slugMatch) slug = slugMatch[1];
+        }
+
+        var slot = {
+          id: id,
+          zone: 'top',
+          handle: handle,
+          saasName: saasName,
+          description: description,
+          avatar: (startupData && startupData.avatar) || null,
+          mrr: (startupData && startupData.mrr) ? String(startupData.mrr) : '',
+          askPrice: '',
+          url: trustmrrUrl || '',
+          slug: slug || (startupData && startupData.slug) || null,
+          startedAt: now.toISOString(),
+          expiresAt: expires.toISOString(),
+        };
+
+        adSlots.push(slot);
+        saveAdSlots();
+
+        // Remove payment record after successful activation
+        pendingAds.delete(key);
+        savePendingAds();
+
+        setMemoryCache();
+        console.log(`[ads] Activated ad for @${handle} (${saasName}), expires ${expires.toISOString()}`);
+        return sendJson(req, res, 200, { ok: true, slot: slot });
+      } catch (e) {
+        return sendJson(req, res, 400, { error: 'Invalid JSON' });
+      }
+    });
+    return;
+  }
+
+  if (url.pathname === '/api/ad/activate' && req.method === 'OPTIONS') {
+    res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    res.writeHead(204);
+    return res.end();
+  }
+
+  // ── Dev ads API (read-only, no auth) ──────────────────────
+  if (url.pathname === '/api/dev/ads' && req.method === 'GET') {
+    var now = new Date().toISOString();
+    var all = adSlots.map(function(a) {
+      return Object.assign({}, a, { active: a.expiresAt > now });
+    });
+    return sendJson(req, res, 200, { slots: all, total: all.length });
+  }
+
+  // ── Success page ──────────────────────────────────────────
+  if (url.pathname === '/success') {
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    return res.end(getSuccessPageHtml());
+  }
+
+  // ── FAQ page ────────────────────────────────────────────────
+  if (url.pathname === '/faq') {
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    return res.end(getFaqPageHtml());
+  }
+
+  // ── Dev dashboard ─────────────────────────────────────────
+  if (url.pathname === '/dev') {
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    return res.end(getDevDashboardHtml());
+  }
+
+  // Handle OPTIONS for admin endpoints
+  if (url.pathname.startsWith('/api/admin/') && req.method === 'OPTIONS') {
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    res.writeHead(204);
+    return res.end();
   }
 
   // Static files from memory
@@ -877,30 +2192,42 @@ async function start() {
   await initDb();
   preloadStatic();
 
+  // Load ad slots + pending ads
+  loadAdSlots();
+  loadPendingAds();
+
+  // Load TrustMRR data from cache, then sync fresh
+  loadTrustMrrData();
+  if (trustmrrStartups.length) setMemoryCache();
+
+  // Sync fresh TrustMRR data
+  await syncTrustMrrData();
+
+  // Enrich default featured ads with live MRR from TrustMRR
+  await enrichDefaultAds();
+
   // Restore scan times from file + DB
   loadScanTimes();
   await warmScanTimesFromDb();
 
-  // Warm memory cache from DB or file (instant feed for first visitor)
-  const db = await getFeedCardsFromDb();
-  const file = cacheGet('feed');
-  if (db && db.length) {
-    setMemoryCache(db);
-    console.log(`Cache warmed from DB: ${db.length} cards`);
-  } else if (file && file.length) {
-    setMemoryCache(file);
-    console.log(`Cache warmed from file: ${file.length} cards`);
-  }
-
   server.listen(PORT, '0.0.0.0', () => {
-    console.log(`WhileYouWereSleeping.lol → http://localhost:${PORT}`);
-    console.log(`Tracking ${ACCOUNTS.length} accounts\n`);
+    console.log(`WhileYouSlept.lol → http://localhost:${PORT}`);
+    console.log(`Tracking ${trustmrrStartups.length} startups from TrustMRR\n`);
 
-    // Run first scan immediately
+    // Run first tweet scan immediately
     backgroundScan();
 
-    // Then check for stale accounts every 5 minutes
+    // Then check for stale tweet scans every 5 minutes
     setInterval(backgroundScan, LOOP_INTERVAL);
+
+    // Schedule daily TrustMRR sync at 12:01 AM ET
+    scheduleNextSync();
+
+    // Proactive cleanup every 5 minutes
+    setInterval(function() {
+      cleanupExpiredAds();
+      cleanupStalePendingAds();
+    }, 5 * 60 * 1000);
   });
 }
 
