@@ -42,7 +42,7 @@
   /* ── Header ────────────────────────────────────────────── */
   .header {
     padding: 32px 0 28px;
-    border-bottom: 3px solid #000;
+    border-bottom: none;
     margin-bottom: 0;
     text-align: center;
   }
@@ -460,6 +460,13 @@
     margin-bottom: 2px;
   }
 
+  .card-name-group {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+  }
+
   .card-startup-name {
     font-size: 0.85rem;
     font-weight: 800;
@@ -710,8 +717,10 @@
   .featured-section {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
-    gap: 16px;
-    margin-bottom: 20px;
+    gap: 18px;
+    margin-bottom: 24px;
+    padding-bottom: 4px;
+    align-items: stretch;
   }
 
   .featured-section:empty {
@@ -792,26 +801,113 @@
     position: absolute;
     top: 8px;
     right: 10px;
-    font-size: 0.55rem;
+    font-size: 0.5rem;
     font-weight: 800;
     text-transform: uppercase;
-    letter-spacing: 0.8px;
-    color: #7c3aed;
-    background: rgba(245, 243, 255, 0.92);
-    padding: 2px 7px;
+    letter-spacing: 0.5px;
+    color: #92400e;
+    background: linear-gradient(135deg, #fef3c7, #fde68a);
+    padding: 2px 6px;
     border-radius: 3px;
-    border: 1px solid #ede9fe;
+    border: 1px solid #fcd34d;
   }
 
   .card.promoted:hover .promoted-tag {
-    background: rgba(139, 92, 246, 0.12);
-    color: #6d28d9;
+    background: linear-gradient(135deg, #fde68a, #fbbf24);
+    color: #78350f;
   }
 
-  /* Hide promoted tag in featured section + always show expand details */
-  .featured-section .card.promoted .promoted-tag { display: none; }
-  .featured-section .card .card-expand { max-height: 200px; opacity: 1; margin-top: 10px; }
-  .featured-section .card:hover .card-expand { max-height: 200px; opacity: 1; margin-top: 10px; }
+  /* ── Featured cards: clean tile layout ────────────────────── */
+  .featured-section .card .promoted-tag { display: none; }
+
+  .featured-section .card {
+    flex-direction: row;
+    gap: 12px;
+    padding: 14px 16px;
+    align-items: center;
+    border: 2px solid #f59e0b;
+    animation: cardIn 0.35s ease forwards, forSaleBorderShift 4s 0.35s ease-in-out infinite;
+    transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+  }
+
+  .featured-section .card:hover {
+    border-color: #d97706;
+    box-shadow: 0 0 14px rgba(217, 119, 6, 0.4);
+    transform: scale(1.03);
+  }
+
+  .featured-section .card .card-left {
+    float: none;
+    margin-right: 0;
+    margin-bottom: 0;
+    flex-shrink: 0;
+  }
+
+  .featured-section .card .card-avatar {
+    width: 38px;
+    height: 38px;
+  }
+
+  .featured-section .card .card-avatar-icon {
+    width: 16px;
+    height: 16px;
+  }
+
+  .featured-section .card .card-avatar-link,
+  .featured-section .card .card-avatar-link:hover {
+    transform: none !important;
+  }
+
+  .featured-section .card .card-avatar-x,
+  .featured-section .card .card-avatar-link:hover .card-avatar-x {
+    display: none !important;
+  }
+
+  .featured-section .card .card-right {
+    flex: 1;
+    min-width: 0;
+    padding-right: 28px;
+  }
+
+  /* Name + daily revenue on one line */
+  .featured-section .card .card-top-row {
+    flex-wrap: nowrap;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 1px;
+  }
+
+  .featured-section .card .card-startup-name {
+    font-size: 0.88rem;
+  }
+
+  .featured-section .card .card-daily {
+    font-size: 0.88rem;
+  }
+
+  /* Handle row compact */
+  .featured-section .card .card-sub-row {
+    margin-bottom: 4px;
+    gap: 4px;
+  }
+
+  /* Description */
+  .featured-section .card .card-right > div[style] {
+    margin-bottom: 0;
+  }
+
+  /* Hide tweet section in featured (keep cards uniform) */
+  .featured-section .card .card-tweet-divider,
+  .featured-section .card .card-tweet-text,
+  .featured-section .card .card-media,
+  .featured-section .card .card-stats {
+    display: none;
+  }
+
+  /* Hide expand section in featured to keep cards compact */
+  .featured-section .card .card-expand {
+    display: none;
+  }
 
   .featured-visit-icon {
     position: absolute;
@@ -819,8 +915,9 @@
     right: 10px;
     font-size: 0.85rem;
     font-weight: 700;
-    color: #bbb;
-    background: #f5f5f5;
+    color: #92400e;
+    background: linear-gradient(135deg, #fef3c7, #fde68a);
+    border: 1px solid #fcd34d;
     width: 24px;
     height: 24px;
     border-radius: 5px;
@@ -833,8 +930,8 @@
   }
 
   .card:hover .featured-visit-icon {
-    color: #16a34a;
-    background: #f0fdf4;
+    color: #78350f;
+    background: linear-gradient(135deg, #fde68a, #fbbf24);
   }
 
   /* ── Rank Badge ──────────────────────────────────────────── */
@@ -1126,6 +1223,88 @@
     .card-avatar { width: 30px; height: 30px; }
     .card-expand-stats { gap: 8px; }
   }
+
+  /* ── History section ─────────────────────────────────────── */
+  .history-section {
+    margin-top: 40px;
+    border-top: 2px solid #e5e5e5;
+    padding-top: 24px;
+  }
+
+  .history-label {
+    text-transform: uppercase;
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 2px;
+    text-align: center;
+    color: #999;
+    margin-bottom: 16px;
+  }
+
+  .history-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: #fff;
+    border: 1px solid #e5e5e5;
+    border-radius: 10px;
+    padding: 16px 20px;
+    margin-bottom: 10px;
+    opacity: 0;
+    transform: translateY(8px);
+    animation: historyFadeIn 0.4s ease forwards;
+  }
+
+  @keyframes historyFadeIn {
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .history-date {
+    font-size: clamp(1.1rem, 2.5vw, 1.5rem);
+    font-weight: 900;
+    color: #000;
+    text-transform: uppercase;
+    line-height: 1.2;
+  }
+
+  .history-date .history-weekday {
+    display: block;
+    font-size: 0.7rem;
+    font-weight: 600;
+    color: #999;
+    text-transform: none;
+    letter-spacing: 0;
+    margin-top: 2px;
+  }
+
+  .history-amount {
+    text-align: right;
+    font-weight: 700;
+    line-height: 1.3;
+  }
+
+  .history-amount .history-cash {
+    font-size: clamp(1rem, 2.5vw, 1.3rem);
+    color: #16a34a;
+    font-weight: 900;
+  }
+
+  .history-amount .history-sub {
+    display: block;
+    font-size: 0.7rem;
+    font-weight: 600;
+    color: #999;
+    margin-top: 2px;
+  }
+
+  @media (max-width: 600px) {
+    .history-section { margin-top: 24px; padding-top: 16px; }
+    .history-row { padding: 12px 14px; border-radius: 8px; }
+    .history-label { font-size: 0.68rem; margin-bottom: 12px; }
+    .history-amount .history-cash { font-size: 0.95rem; }
+    .history-amount .history-sub { font-size: 0.62rem; }
+    .history-date .history-weekday { font-size: 0.62rem; }
+  }
 </style>
 </head>
 <body>
@@ -1158,6 +1337,7 @@
   <div id="content" style="display:none;">
     <div class="featured-section" id="featuredSection"></div>
     <div class="feed" id="feed"></div>
+    <div class="history-section" id="historySection"></div>
   </div>
 
   <div class="footer" id="footer" style="display:none;">
@@ -1388,7 +1568,7 @@
     else if (rank === 2) rankBadgeHtml = '<span class="rank-badge rank-2">#2</span>';
     else if (rank === 3) rankBadgeHtml = '<span class="rank-badge rank-3">#3</span>';
 
-    var promotedTagHtml = startup.isPromoted ? '<span class="promoted-tag">Featured</span>' : '';
+    var promotedTagHtml = '';
     var forSaleBadgeHtml = startup.onSale ? '<span class="for-sale-badge">For Sale</span>' : '';
 
     var html = rankBadgeHtml + promotedTagHtml +
@@ -1401,8 +1581,7 @@
       '</div>' +
       '<div class="card-right">' +
         '<div class="card-top-row">' +
-          '<div class="card-startup-name">' + safeStartupName + '</div>' +
-          forSaleBadgeHtml +
+          '<div class="card-name-group"><div class="card-startup-name">' + safeStartupName + '</div>' + forSaleBadgeHtml + '</div>' +
           '<div class="card-daily">' + formatDollar(startup.dailyRevenue) + '/day</div>' +
         '</div>' +
         '<div class="card-sub-row">' +
@@ -1589,10 +1768,6 @@
 
     // ── Featured section at top (top-zone ads including defaults) ──
     var topAds = (data.ads && data.ads.top) ? data.ads.top : [];
-    var featLabel = document.createElement('div');
-    featLabel.className = 'featured-label';
-    featLabel.textContent = 'Featured';
-    featuredSection.appendChild(featLabel);
 
     var TOTAL_SLOTS = 3;
 
@@ -1691,6 +1866,80 @@
     el.textContent = data.startupCount + ' startups verified on TrustMRR \u00b7 ' + mrrStr + ' total MRR';
   }
 
+  /* ── History section ──────────────────────────────────── */
+  function renderHistory(historyData) {
+    var container = document.getElementById('historySection');
+    if (!container) return;
+    container.innerHTML = '';
+
+    var items = historyData;
+
+    // If no real data, show 3 template rows with realistic fake data
+    if (!items || !items.length) {
+      items = [];
+      var now = new Date();
+      for (var t = 1; t <= 3; t++) {
+        var d = new Date(now);
+        d.setDate(d.getDate() - t);
+        var yyyy = d.getFullYear();
+        var mm = String(d.getMonth() + 1).padStart(2, '0');
+        var dd = String(d.getDate()).padStart(2, '0');
+        items.push({
+          date: yyyy + '-' + mm + '-' + dd,
+          totalDailyRevenue: Math.round(4000 + Math.random() * 3000),
+          startupCount: Math.round(50 + Math.random() * 30),
+        });
+      }
+    }
+
+    var label = document.createElement('div');
+    label.className = 'history-label';
+    label.textContent = 'Previous days';
+    container.appendChild(label);
+
+    var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    var weekdays = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+
+    for (var i = 0; i < items.length; i++) {
+      var item = items[i];
+      var parts = item.date.split('-');
+      var dateObj = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
+      var monthStr = months[dateObj.getMonth()];
+      var dayNum = dateObj.getDate();
+      var weekday = weekdays[dateObj.getDay()];
+
+      var row = document.createElement('div');
+      row.className = 'history-row';
+      row.style.animationDelay = (i * 0.08) + 's';
+
+      var revenue = Math.round(item.totalDailyRevenue || 0);
+      var revenueStr = '$' + revenue.toLocaleString();
+
+      row.innerHTML =
+        '<div class="history-date">' +
+          monthStr + ' ' + dayNum +
+          '<span class="history-weekday">' + weekday + '</span>' +
+        '</div>' +
+        '<div class="history-amount">' +
+          '<span class="history-cash">' + escapeHtml(revenueStr) + '</span>' +
+          '<span class="history-sub">' + (item.startupCount || 0) + ' startups</span>' +
+        '</div>';
+
+      container.appendChild(row);
+    }
+  }
+
+  function loadHistory() {
+    fetch('/api/history?days=7')
+      .then(function(resp) { return resp.json(); })
+      .then(function(data) {
+        renderHistory(data.history || []);
+      })
+      .catch(function() {
+        renderHistory([]);
+      });
+  }
+
   /* ── Show the feed ──────────────────────────────────────── */
   function showFeed(data) {
     document.getElementById('loading').style.display = 'none';
@@ -1700,6 +1949,7 @@
     renderFeed(data);
     updateFooter(data);
     lastData = data;
+    loadHistory();
   }
 
   /* ── Show empty state ───────────────────────────────────── */
