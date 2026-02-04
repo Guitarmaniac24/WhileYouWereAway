@@ -57,6 +57,32 @@ let adSlots = []; // active ad slots
 const PENDING_ADS_FILE = path.join(CACHE_DIR, 'pending_ads.json');
 const pendingAds = new Map(); // handle (lowercase) → { handle, saasName, paidAt, sessionId }
 
+// Expired ads archive
+const EXPIRED_ADS_FILE = path.join(CACHE_DIR, 'expired_ads.json');
+let expiredAds = [];
+
+function loadExpiredAds() {
+  try {
+    if (fs.existsSync(EXPIRED_ADS_FILE)) {
+      expiredAds = JSON.parse(fs.readFileSync(EXPIRED_ADS_FILE, 'utf8'));
+      console.log(`Expired ads loaded: ${expiredAds.length}`);
+    }
+  } catch (e) { expiredAds = []; }
+}
+
+function saveExpiredAds() {
+  try {
+    fs.writeFileSync(EXPIRED_ADS_FILE, JSON.stringify(expiredAds, null, 2));
+  } catch (e) { console.error('Failed to save expired ads:', e.message); }
+}
+
+function archiveExpiredAd(ad) {
+  expiredAds.push(Object.assign({}, ad, { expiredAt: new Date().toISOString() }));
+  // Keep only last 100 expired ads
+  if (expiredAds.length > 100) expiredAds = expiredAds.slice(-100);
+  saveExpiredAds();
+}
+
 function loadPendingAds() {
   try {
     if (fs.existsSync(PENDING_ADS_FILE)) {
@@ -95,12 +121,13 @@ function cleanupExpiredAds() {
   const before = adSlots.length;
   const expired = adSlots.filter(function(a) { return a.expiresAt <= now; });
   if (expired.length > 0) {
+    for (var i = 0; i < expired.length; i++) {
+      archiveExpiredAd(expired[i]);
+      console.log('[ads] Expired ad removed: @' + expired[i].handle + ' (' + expired[i].saasName + ')');
+    }
     adSlots = adSlots.filter(function(a) { return a.expiresAt > now; });
     saveAdSlots();
     setMemoryCache();
-    for (var i = 0; i < expired.length; i++) {
-      console.log('[ads] Expired ad removed: @' + expired[i].handle + ' (' + expired[i].saasName + ')');
-    }
     console.log('[ads] Cleanup: removed ' + expired.length + ' expired ad(s), ' + adSlots.length + ' remaining');
   }
 }
@@ -155,8 +182,19 @@ function getAdsForFeed() {
     if (a.zone === 'top') top.push(obj);
     else feed.push(obj);
   }
-  // Fill remaining top slots: first with hardcoded defaults (enriched from TrustMRR), then fillers
+
+  // Ad rotation: if >3 paid top-zone ads, Fisher-Yates shuffle and pick 3
   var MAX_TOP = 3;
+  if (top.length > MAX_TOP) {
+    for (var sh = top.length - 1; sh > 0; sh--) {
+      var j = Math.floor(Math.random() * (sh + 1));
+      var tmp = top[sh]; top[sh] = top[j]; top[j] = tmp;
+    }
+    top = top.slice(0, MAX_TOP);
+    return { top: top, feed: feed };
+  }
+
+  // Fill remaining top slots: first with hardcoded defaults (enriched from TrustMRR), then fillers
   var FILLER_LIMIT = MAX_TOP; // fill all 3 featured slots
   var usedHandles = {};
   for (var u = 0; u < top.length; u++) usedHandles[top[u].handle.toLowerCase()] = true;
@@ -253,7 +291,6 @@ function buildFeedPayload() {
 
   return {
     startups,
-    ads: getAdsForFeed(),
     totalDailyRevenue,
     totalMRR,
     startupCount: startups.length,
@@ -264,8 +301,7 @@ function buildFeedPayload() {
 
 function setMemoryCache() {
   const payload = buildFeedPayload();
-  const json = JSON.stringify(payload);
-  memoryFeedCache = { json, gzipped: zlib.gzipSync(json) };
+  memoryFeedCache = { base: payload };
 }
 
 /* ── PostgreSQL (optional — keeps tweet storage) ────────── */
@@ -322,6 +358,16 @@ async function ensureSchema() {
     )
   `);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_tweets_sn ON tweets(screenname)`);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS daily_snapshots (
+      snapshot_date DATE PRIMARY KEY,
+      total_daily_revenue NUMERIC(12, 2) NOT NULL,
+      total_mrr NUMERIC(12, 2) NOT NULL,
+      startup_count INT NOT NULL DEFAULT 0,
+      top_earners JSONB DEFAULT '[]',
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
   console.log('Schema ready');
 }
 
@@ -383,6 +429,120 @@ async function updateScanState(screenname, lastTweetId) {
   } catch (e) { /* skip */ }
 }
 
+/* ── Daily snapshot helpers ─────────────────────────────── */
+const DAILY_HISTORY_FILE = path.join(CACHE_DIR, 'daily_history.json');
+
+function getTodayET() {
+  const d = new Date();
+  const parts = d.toLocaleDateString('en-CA', { timeZone: 'America/New_York' }); // YYYY-MM-DD
+  return parts;
+}
+
+function loadDailyHistory() {
+  try {
+    if (fs.existsSync(DAILY_HISTORY_FILE)) {
+      return JSON.parse(fs.readFileSync(DAILY_HISTORY_FILE, 'utf8'));
+    }
+  } catch (e) { /* skip */ }
+  return [];
+}
+
+function saveSnapshotToFile(snapshot) {
+  try {
+    const history = loadDailyHistory();
+    const idx = history.findIndex(h => h.date === snapshot.date);
+    if (idx >= 0) {
+      history[idx] = snapshot;
+    } else {
+      history.push(snapshot);
+    }
+    history.sort((a, b) => b.date.localeCompare(a.date));
+    const trimmed = history.slice(0, 30);
+    fs.writeFileSync(DAILY_HISTORY_FILE, JSON.stringify(trimmed, null, 2));
+  } catch (e) { console.error('Failed to save daily snapshot file:', e.message); }
+}
+
+async function saveDailySnapshot() {
+  try {
+    const active = trustmrrStartups.filter(s => s.dailyRevenue > 0);
+    if (!active.length) return;
+
+    const totalDailyRevenue = Math.round(active.reduce((sum, s) => sum + s.dailyRevenue, 0) * 100) / 100;
+    const totalMRR = Math.round(active.reduce((sum, s) => sum + s.mrr, 0) * 100) / 100;
+    const startupCount = active.length;
+
+    const sorted = active.slice().sort((a, b) => b.dailyRevenue - a.dailyRevenue);
+    const topEarners = sorted.slice(0, 5).map(s => ({
+      handle: s.handle,
+      name: s.startupName || s.name,
+      dailyRevenue: s.dailyRevenue,
+      mrr: s.mrr,
+    }));
+
+    const dateStr = getTodayET();
+    const snapshot = {
+      date: dateStr,
+      totalDailyRevenue,
+      totalMRR,
+      startupCount,
+      topEarners,
+    };
+
+    // Persist to PostgreSQL
+    if (pool) {
+      try {
+        await pool.query(`
+          INSERT INTO daily_snapshots (snapshot_date, total_daily_revenue, total_mrr, startup_count, top_earners)
+          VALUES ($1, $2, $3, $4, $5)
+          ON CONFLICT (snapshot_date) DO UPDATE SET
+            total_daily_revenue = EXCLUDED.total_daily_revenue,
+            total_mrr = EXCLUDED.total_mrr,
+            startup_count = EXCLUDED.startup_count,
+            top_earners = EXCLUDED.top_earners
+        `, [dateStr, totalDailyRevenue, totalMRR, startupCount, JSON.stringify(topEarners)]);
+      } catch (e) { console.error('Failed to save daily snapshot to DB:', e.message); }
+    }
+
+    // Always persist to file
+    saveSnapshotToFile(snapshot);
+    console.log(`[snapshot] Saved daily snapshot for ${dateStr}: $${totalDailyRevenue} daily, ${startupCount} startups`);
+  } catch (e) { console.error('saveDailySnapshot failed:', e.message); }
+}
+
+async function getDailyHistory(days) {
+  days = Math.min(Math.max(days || 7, 1), 30);
+  const todayET = getTodayET();
+
+  // Try PostgreSQL first
+  if (pool) {
+    try {
+      const r = await pool.query(
+        `SELECT snapshot_date, total_daily_revenue, total_mrr, startup_count, top_earners
+         FROM daily_snapshots
+         WHERE snapshot_date < $1
+         ORDER BY snapshot_date DESC
+         LIMIT $2`,
+        [todayET, days]
+      );
+      if (r.rows.length) {
+        return r.rows.map(row => ({
+          date: row.snapshot_date instanceof Date
+            ? row.snapshot_date.toISOString().slice(0, 10)
+            : String(row.snapshot_date).slice(0, 10),
+          totalDailyRevenue: parseFloat(row.total_daily_revenue),
+          totalMRR: parseFloat(row.total_mrr),
+          startupCount: row.startup_count,
+          topEarners: row.top_earners || [],
+        }));
+      }
+    } catch (e) { /* fall through to file */ }
+  }
+
+  // File fallback
+  const history = loadDailyHistory();
+  return history.filter(h => h.date < todayET).slice(0, days);
+}
+
 /* ── File cache ─────────────────────────────────────────── */
 function cacheGet(name) {
   const p = path.join(CACHE_DIR, `${name}.json`);
@@ -404,7 +564,7 @@ function pruneCache() {
   try {
     for (const f of fs.readdirSync(CACHE_DIR)) {
       if (!f.endsWith('.json')) continue;
-      if (f === 'trustmrr_data.json' || f === 'scan_times.json' || f === 'ad_slots.json' || f === 'pending_ads.json') continue;
+      if (f === 'trustmrr_data.json' || f === 'scan_times.json' || f === 'ad_slots.json' || f === 'pending_ads.json' || f === 'daily_history.json' || f === 'expired_ads.json') continue;
       const full = path.join(CACHE_DIR, f);
       try {
         if (Date.now() - fs.statSync(full).mtimeMs > 2 * SCAN_COOLDOWN) fs.unlinkSync(full);
@@ -458,16 +618,19 @@ function sendJson(req, res, code, obj) {
 
 function sendCachedFeed(req, res) {
   if (!memoryFeedCache) return false;
+  // Merge fresh ads per-request for rotation
+  const payload = Object.assign({}, memoryFeedCache.base, { ads: getAdsForFeed() });
+  const json = JSON.stringify(payload);
   const gz = (req.headers['accept-encoding'] || '').includes('gzip');
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
   res.setHeader('Cache-Control', 'public, max-age=30, stale-while-revalidate=120');
   if (gz) {
     res.setHeader('Content-Encoding', 'gzip');
     res.writeHead(200);
-    res.end(memoryFeedCache.gzipped);
+    zlib.gzip(json, (e, buf) => res.end(e ? json : buf));
   } else {
     res.writeHead(200);
-    res.end(memoryFeedCache.json);
+    res.end(json);
   }
   return true;
 }
@@ -544,6 +707,64 @@ function verifyStripeSignature(payload, sigHeader, secret) {
   try {
     return crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected));
   } catch (e) { return false; }
+}
+
+/* ── Stripe API fallback: verify payment via API ────────── */
+async function verifyStripePayment(handle, saasName) {
+  const sk = process.env.STRIPE_SECRET_KEY || '';
+  if (!sk) return null;
+  try {
+    // Try composite ref first (handle|saasName), then bare handle
+    const refs = saasName ? [`${handle}|${saasName}`, handle] : [handle];
+    for (const ref of refs) {
+      const qs = `client_reference_id=${encodeURIComponent(ref)}&status=complete&limit=1`;
+      const data = await httpsReq({
+        hostname: 'api.stripe.com',
+        path: `/v1/checkout/sessions?${qs}`,
+        method: 'GET',
+        headers: { 'Authorization': `Bearer ${sk}` },
+      });
+      if (data && data.data && data.data.length > 0) {
+        console.log(`[stripe] API fallback found session for ref="${ref}"`);
+        return data.data[0];
+      }
+    }
+  } catch (e) {
+    console.error('[stripe] API fallback error:', e.message);
+  }
+  return null;
+}
+
+/* ── Resend email after payment ─────────────────────────── */
+function sendPaymentEmail(email, handle, saasName) {
+  const apiKey = process.env.RESEND_API_KEY || '';
+  if (!apiKey || !email) return;
+  const siteUrl = process.env.SITE_URL || 'https://whileyouslept.lol';
+  const body = JSON.stringify({
+    from: 'WhileYouSlept.lol <noreply@whileyouslept.lol>',
+    to: [email],
+    subject: `Activate your ad for ${saasName || handle} on WhileYouSlept.lol`,
+    html: `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:480px;margin:0 auto;padding:32px 20px;">
+<h2 style="margin:0 0 8px;font-size:1.2rem;">Payment confirmed!</h2>
+<p style="color:#666;font-size:0.9rem;line-height:1.5;margin:0 0 24px;">Your featured ad slot for <strong>@${handle}</strong>${saasName ? ' (' + saasName + ')' : ''} is ready to activate.</p>
+<a href="${siteUrl}/success" style="display:inline-block;background:#16a34a;color:#fff;font-weight:700;font-size:0.9rem;padding:12px 28px;border-radius:8px;text-decoration:none;">Activate Your Ad</a>
+<p style="color:#999;font-size:0.75rem;margin-top:24px;">If you didn't make this purchase, you can ignore this email.</p>
+</div>`,
+  });
+  httpsReq({
+    hostname: 'api.resend.com',
+    path: '/emails',
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+      'Content-Length': Buffer.byteLength(body),
+    },
+  }, body).then(() => {
+    console.log(`[resend] Email sent to ${email} for @${handle}`);
+  }).catch(e => {
+    console.error(`[resend] Failed to send email: ${e.message}`);
+  });
 }
 
 /* ── TrustMRR Data Scraper ──────────────────────────────── */
@@ -870,6 +1091,7 @@ async function syncTrustMrrData() {
       trustmrrStartups = startups;
       saveTrustMrrData(startups);
       setMemoryCache();
+      await saveDailySnapshot();
       console.log(`[trustmrr] Synced ${startups.length} startups with revenue data`);
       const totalMRR = startups.reduce((sum, s) => sum + s.mrr, 0);
       console.log(`[trustmrr] Total MRR: $${Math.round(totalMRR).toLocaleString()}`);
@@ -1875,6 +2097,259 @@ function getDevDashboardHtml() {
 </html>`;
 }
 
+function getAdminDashboardHtml() {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Admin — WhileYouSlept.lol</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #0a0a0a;
+    color: #e0e0e0;
+    font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+    font-size: 13px;
+    min-height: 100vh;
+    padding: 24px;
+  }
+  h1 {
+    font-size: 1.3rem;
+    font-weight: 800;
+    letter-spacing: -0.5px;
+    color: #fff;
+    margin-bottom: 4px;
+  }
+  .subtitle { color: #666; font-size: 0.75rem; margin-bottom: 20px; }
+  .stats-bar {
+    display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 24px;
+  }
+  .stat-box {
+    background: #141414; border: 1px solid #222; border-radius: 8px;
+    padding: 14px 18px; min-width: 110px;
+  }
+  .stat-box .val { font-size: 1.4rem; font-weight: 800; color: #fff; }
+  .stat-box .lbl { font-size: 0.6rem; text-transform: uppercase; letter-spacing: 0.5px; color: #666; margin-top: 2px; }
+  .section { margin-bottom: 28px; }
+  .section h2 {
+    font-size: 0.75rem; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.5px; color: #888; margin-bottom: 10px;
+    border-bottom: 1px solid #222; padding-bottom: 6px;
+  }
+  table { width: 100%; border-collapse: collapse; background: #111; border: 1px solid #222; border-radius: 8px; overflow: hidden; }
+  th {
+    text-align: left; padding: 8px 12px; font-size: 0.6rem; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.5px; color: #555;
+    background: #0d0d0d; border-bottom: 1px solid #222;
+  }
+  td { padding: 8px 12px; font-size: 0.78rem; border-bottom: 1px solid #1a1a1a; vertical-align: middle; }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: #1a1a1a; }
+  .badge {
+    display: inline-block; font-size: 0.55rem; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.5px;
+    padding: 2px 6px; border-radius: 4px;
+  }
+  .badge.active { background: #052e16; color: #4ade80; }
+  .badge.pending { background: #422006; color: #fbbf24; }
+  .badge.expired { background: #1a1a1a; color: #666; }
+  .btn {
+    padding: 4px 10px; font-size: 0.65rem; font-weight: 700;
+    font-family: inherit; border: 1px solid #333; border-radius: 4px;
+    cursor: pointer; background: #1a1a1a; color: #ccc;
+    transition: all 0.15s;
+  }
+  .btn:hover { background: #222; color: #fff; border-color: #555; }
+  .btn.green { border-color: #16a34a; color: #4ade80; }
+  .btn.green:hover { background: #052e16; }
+  .btn.red { border-color: #991b1b; color: #f87171; }
+  .btn.red:hover { background: #1c0a0a; }
+  .empty { padding: 20px; text-align: center; color: #444; font-style: italic; }
+  .handle { color: #60a5fa; }
+  .truncate { max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .toast {
+    position: fixed; bottom: 24px; right: 24px; background: #16a34a; color: #fff;
+    padding: 10px 18px; border-radius: 6px; font-weight: 700; font-size: 0.75rem;
+    display: none; z-index: 999;
+  }
+  .toast.error { background: #991b1b; }
+  @media (max-width: 768px) {
+    body { padding: 12px; }
+    table { font-size: 0.7rem; }
+    .stats-bar { gap: 8px; }
+    .stat-box { padding: 10px 12px; min-width: 80px; }
+  }
+</style>
+</head>
+<body>
+<h1>Admin Dashboard</h1>
+<p class="subtitle">WhileYouSlept.lol — ad management</p>
+
+<div class="stats-bar" id="statsBar"></div>
+
+<div class="section">
+  <h2>Active Ads</h2>
+  <div id="activeTable"><div class="empty">Loading...</div></div>
+</div>
+
+<div class="section">
+  <h2>Pending Payments</h2>
+  <div id="pendingTable"><div class="empty">Loading...</div></div>
+</div>
+
+<div class="section">
+  <h2>Expired Ads</h2>
+  <div id="expiredTable"><div class="empty">Loading...</div></div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+(function() {
+  var secret = new URLSearchParams(window.location.search).get('secret') || '';
+
+  function toast(msg, isError) {
+    var el = document.getElementById('toast');
+    el.textContent = msg;
+    el.className = 'toast' + (isError ? ' error' : '');
+    el.style.display = 'block';
+    setTimeout(function() { el.style.display = 'none'; }, 3000);
+  }
+
+  function apiCall(method, path, body) {
+    var opts = { method: method, headers: { 'Content-Type': 'application/json' } };
+    if (body) {
+      body.secret = secret;
+      opts.body = JSON.stringify(body);
+    }
+    return fetch(path + (method === 'DELETE' ? '?secret=' + encodeURIComponent(secret) : ''), opts)
+      .then(function(r) { return r.json(); });
+  }
+
+  function fmtDate(iso) {
+    if (!iso) return '—';
+    var d = new Date(iso);
+    return d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
+  }
+
+  function daysLeft(expiresAt) {
+    var ms = new Date(expiresAt) - Date.now();
+    if (ms <= 0) return 'expired';
+    var d = Math.ceil(ms / 86400000);
+    return d + 'd left';
+  }
+
+  function load() {
+    fetch('/api/admin/dashboard?secret=' + encodeURIComponent(secret))
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        if (data.error) { toast(data.error, true); return; }
+
+        var s = data.stats || {};
+        document.getElementById('statsBar').innerHTML =
+          '<div class="stat-box"><div class="val">' + (s.activeCount || 0) + '</div><div class="lbl">Active</div></div>' +
+          '<div class="stat-box"><div class="val">' + (s.pendingCount || 0) + '</div><div class="lbl">Pending</div></div>' +
+          '<div class="stat-box"><div class="val">' + (s.expiredCount || 0) + '</div><div class="lbl">Expired</div></div>' +
+          '<div class="stat-box"><div class="val">$' + (s.weeklyRevenue || 0) + '</div><div class="lbl">Weekly Rev</div></div>' +
+          '<div class="stat-box"><div class="val">$' + (s.totalRevenue || 0) + '</div><div class="lbl">Total Rev</div></div>' +
+          '<div class="stat-box"><div class="val">' + (s.startupCount || 0) + '</div><div class="lbl">Startups</div></div>';
+
+        // Active table
+        var active = data.active || [];
+        if (!active.length) {
+          document.getElementById('activeTable').innerHTML = '<div class="empty">No active ads</div>';
+        } else {
+          var h = '<table><tr><th>SaaS</th><th>Handle</th><th>Desc</th><th>Started</th><th>Expires</th><th>Status</th><th>Actions</th></tr>';
+          for (var i = 0; i < active.length; i++) {
+            var a = active[i];
+            h += '<tr><td><strong>' + (a.saasName || '—') + '</strong></td>' +
+              '<td class="handle">@' + a.handle + '</td>' +
+              '<td class="truncate" title="' + (a.description || '').replace(/"/g, '&quot;') + '">' + (a.description || '—') + '</td>' +
+              '<td>' + fmtDate(a.startedAt) + '</td>' +
+              '<td>' + fmtDate(a.expiresAt) + ' <small>(' + daysLeft(a.expiresAt) + ')</small></td>' +
+              '<td><span class="badge active">Active</span></td>' +
+              '<td><button class="btn green" onclick="extendAd(\\''+a.id+'\\')">+7d</button> ' +
+              '<button class="btn red" onclick="deleteAd(\\''+a.id+'\\')">Delete</button></td></tr>';
+          }
+          h += '</table>';
+          document.getElementById('activeTable').innerHTML = h;
+        }
+
+        // Pending table
+        var pending = data.pending || [];
+        if (!pending.length) {
+          document.getElementById('pendingTable').innerHTML = '<div class="empty">No pending payments</div>';
+        } else {
+          var h2 = '<table><tr><th>Handle</th><th>SaaS</th><th>Paid At</th><th>Email</th><th>Actions</th></tr>';
+          for (var j = 0; j < pending.length; j++) {
+            var p = pending[j];
+            h2 += '<tr><td class="handle">@' + p.handle + '</td>' +
+              '<td>' + (p.saasName || '—') + '</td>' +
+              '<td>' + fmtDate(p.paidAt) + '</td>' +
+              '<td>' + (p.email || '—') + '</td>' +
+              '<td><button class="btn green" onclick="activatePending(\\''+p.handle+'\\')">Activate</button> ' +
+              '<button class="btn red" onclick="deletePending(\\''+p.handle.toLowerCase()+'\\')">Delete</button></td></tr>';
+          }
+          h2 += '</table>';
+          document.getElementById('pendingTable').innerHTML = h2;
+        }
+
+        // Expired table
+        var expired = data.expired || [];
+        if (!expired.length) {
+          document.getElementById('expiredTable').innerHTML = '<div class="empty">No expired ads yet</div>';
+        } else {
+          var h3 = '<table><tr><th>SaaS</th><th>Handle</th><th>Started</th><th>Expired</th></tr>';
+          for (var k = 0; k < expired.length; k++) {
+            var e = expired[k];
+            h3 += '<tr><td>' + (e.saasName || '—') + '</td>' +
+              '<td class="handle">@' + (e.handle || '—') + '</td>' +
+              '<td>' + fmtDate(e.startedAt) + '</td>' +
+              '<td>' + fmtDate(e.expiredAt || e.expiresAt) + '</td></tr>';
+          }
+          h3 += '</table>';
+          document.getElementById('expiredTable').innerHTML = h3;
+        }
+      })
+      .catch(function(err) { toast('Failed to load: ' + err.message, true); });
+  }
+
+  window.extendAd = function(id) {
+    apiCall('POST', '/api/admin/ads/extend', { id: id })
+      .then(function(r) { if (r.ok) { toast('Extended +7 days'); load(); } else { toast(r.error || 'Failed', true); } })
+      .catch(function() { toast('Network error', true); });
+  };
+
+  window.deleteAd = function(id) {
+    if (!confirm('Delete this ad?')) return;
+    fetch('/api/admin/ads/' + id + '?secret=' + encodeURIComponent(secret), { method: 'DELETE' })
+      .then(function(r) { return r.json(); })
+      .then(function(r) { if (r.ok) { toast('Ad deleted'); load(); } else { toast(r.error || 'Failed', true); } })
+      .catch(function() { toast('Network error', true); });
+  };
+
+  window.activatePending = function(handle) {
+    apiCall('POST', '/api/admin/pending/activate', { handle: handle })
+      .then(function(r) { if (r.ok) { toast('Ad activated'); load(); } else { toast(r.error || 'Failed', true); } })
+      .catch(function() { toast('Network error', true); });
+  };
+
+  window.deletePending = function(handle) {
+    if (!confirm('Delete pending ad for @' + handle + '?')) return;
+    fetch('/api/admin/pending/' + encodeURIComponent(handle) + '?secret=' + encodeURIComponent(secret), { method: 'DELETE' })
+      .then(function(r) { return r.json(); })
+      .then(function(r) { if (r.ok) { toast('Pending deleted'); load(); } else { toast(r.error || 'Failed', true); } })
+      .catch(function() { toast('Network error', true); });
+  };
+
+  load();
+})();
+</script>
+</body>
+</html>`;
+}
+
 /* ── HTTP server ────────────────────────────────────────── */
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://localhost:${PORT}`);
@@ -1932,14 +2407,17 @@ const server = http.createServer(async (req, res) => {
             const handle = parts[0].replace(/^@/, '').trim();
             const saasName = parts[1] || '';
             const key = handle.toLowerCase();
+            const email = (session.customer_details && session.customer_details.email) || '';
             pendingAds.set(key, {
               handle,
               saasName,
               paidAt: new Date().toISOString(),
               sessionId: session.id || null,
+              email: email || null,
             });
             savePendingAds();
             console.log(`[stripe] Payment recorded for @${handle} (${saasName})`);
+            sendPaymentEmail(email, handle, saasName);
           }
         }
         res.writeHead(200);
@@ -1973,6 +2451,17 @@ const server = http.createServer(async (req, res) => {
       lastSync: null,
       scanning: scanInProgress,
     });
+  }
+
+  // ── History API ──────────────────────────────────────
+  if (url.pathname === '/api/history') {
+    const days = Math.min(Math.max(parseInt(url.searchParams.get('days')) || 7, 1), 30);
+    try {
+      const history = await getDailyHistory(days);
+      return sendJson(req, res, 200, { history });
+    } catch (e) {
+      return sendJson(req, res, 500, { error: 'Failed to load history' });
+    }
   }
 
   // ── Admin ad slot API ─────────────────────────────────
@@ -2044,7 +2533,7 @@ const server = http.createServer(async (req, res) => {
   if (url.pathname === '/api/ad/activate' && req.method === 'POST') {
     let body = '';
     req.on('data', function(c) { body += c; if (body.length > 4096) { req.destroy(); } });
-    req.on('end', function() {
+    req.on('end', async function() {
       try {
         var d = JSON.parse(body);
         var handle = (d.handle || '').replace(/^@/, '').trim();
@@ -2059,6 +2548,25 @@ const server = http.createServer(async (req, res) => {
         // Verify payment exists
         var key = handle.toLowerCase();
         var payment = pendingAds.get(key);
+
+        // Stripe API fallback: if webhook hasn't arrived yet, check Stripe directly
+        if (!payment) {
+          var session = await verifyStripePayment(handle, saasName);
+          if (session) {
+            var email = (session.customer_details && session.customer_details.email) || '';
+            payment = {
+              handle,
+              saasName,
+              paidAt: new Date().toISOString(),
+              sessionId: session.id || null,
+              email: email || null,
+            };
+            pendingAds.set(key, payment);
+            savePendingAds();
+            console.log(`[stripe] Fallback: created pending ad for @${handle} from API`);
+          }
+        }
+
         if (!payment) {
           var checkoutUrl = process.env.STRIPE_LINK || '';
           return sendJson(req, res, 402, {
@@ -2143,10 +2651,133 @@ const server = http.createServer(async (req, res) => {
     return res.end(getFaqPageHtml());
   }
 
+  // ── Admin dashboard ──────────────────────────────────────
+  if (url.pathname === '/admin') {
+    var secret = url.searchParams.get('secret');
+    if (!ADMIN_SECRET || secret !== ADMIN_SECRET) {
+      res.writeHead(401, { 'Content-Type': 'text/plain' });
+      return res.end('Unauthorized');
+    }
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    return res.end(getAdminDashboardHtml());
+  }
+
   // ── Dev dashboard ─────────────────────────────────────────
   if (url.pathname === '/dev') {
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
     return res.end(getDevDashboardHtml());
+  }
+
+  // ── Admin dashboard API ─────────────────────────────────
+  if (url.pathname === '/api/admin/dashboard' && req.method === 'GET') {
+    var secret = url.searchParams.get('secret');
+    if (!ADMIN_SECRET || secret !== ADMIN_SECRET) return sendJson(req, res, 401, { error: 'Unauthorized' });
+    var now = new Date().toISOString();
+    var activeSlots = adSlots.filter(function(a) { return a.expiresAt > now; });
+    var pendingList = [];
+    for (var [pk, pv] of pendingAds) pendingList.push(pv);
+    return sendJson(req, res, 200, {
+      active: activeSlots.map(function(a) { return Object.assign({}, a, { active: true }); }),
+      pending: pendingList,
+      expired: expiredAds.slice().reverse().slice(0, 50),
+      stats: {
+        activeCount: activeSlots.length,
+        pendingCount: pendingAds.size,
+        expiredCount: expiredAds.length,
+        weeklyRevenue: activeSlots.length * 49,
+        totalRevenue: (activeSlots.length + expiredAds.length) * 49,
+        startupCount: trustmrrStartups.length,
+      },
+    });
+  }
+
+  // ── Extend ad by 7 days ─────────────────────────────────
+  if (url.pathname === '/api/admin/ads/extend' && req.method === 'POST') {
+    let body = '';
+    req.on('data', function(c) { body += c; });
+    req.on('end', function() {
+      try {
+        var d = JSON.parse(body);
+        if (!ADMIN_SECRET || d.secret !== ADMIN_SECRET) return sendJson(req, res, 401, { error: 'Unauthorized' });
+        var adId = d.id;
+        if (!adId) return sendJson(req, res, 400, { error: 'Missing ad id' });
+        var slot = adSlots.find(function(a) { return a.id === adId; });
+        if (!slot) return sendJson(req, res, 404, { error: 'Ad not found' });
+        var newExpiry = new Date(new Date(slot.expiresAt).getTime() + 7 * 24 * 60 * 60 * 1000);
+        slot.expiresAt = newExpiry.toISOString();
+        saveAdSlots();
+        setMemoryCache();
+        console.log('[admin] Extended ad @' + slot.handle + ' to ' + slot.expiresAt);
+        return sendJson(req, res, 200, { ok: true, slot: slot });
+      } catch (e) {
+        return sendJson(req, res, 400, { error: 'Invalid JSON' });
+      }
+    });
+    return;
+  }
+
+  // ── Manually activate pending ad ────────────────────────
+  if (url.pathname === '/api/admin/pending/activate' && req.method === 'POST') {
+    let body = '';
+    req.on('data', function(c) { body += c; });
+    req.on('end', function() {
+      try {
+        var d = JSON.parse(body);
+        if (!ADMIN_SECRET || d.secret !== ADMIN_SECRET) return sendJson(req, res, 401, { error: 'Unauthorized' });
+        var handle = (d.handle || '').replace(/^@/, '').trim();
+        if (!handle) return sendJson(req, res, 400, { error: 'Missing handle' });
+        var key = handle.toLowerCase();
+        var payment = pendingAds.get(key);
+        if (!payment) return sendJson(req, res, 404, { error: 'Pending ad not found' });
+        var saasName = payment.saasName || d.saasName || '';
+        var description = (d.description || '').slice(0, 80);
+        var trustmrrUrl = d.trustmrrUrl || '';
+        var startupData = trustmrrStartups.find(function(s) {
+          return s.handle && s.handle.toLowerCase() === key;
+        });
+        var id = Math.random().toString(36).slice(2, 8);
+        var now = new Date();
+        var expires = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+        var slug = null;
+        if (trustmrrUrl) {
+          var slugMatch = trustmrrUrl.match(/trustmrr\.com\/startup\/([^/?#]+)/);
+          if (slugMatch) slug = slugMatch[1];
+        }
+        var slot = {
+          id: id, zone: 'top', handle: handle, saasName: saasName,
+          description: description,
+          avatar: (startupData && startupData.avatar) || null,
+          mrr: (startupData && startupData.mrr) ? String(startupData.mrr) : '',
+          askPrice: '', url: trustmrrUrl || '',
+          slug: slug || (startupData && startupData.slug) || null,
+          startedAt: now.toISOString(), expiresAt: expires.toISOString(),
+        };
+        adSlots.push(slot);
+        saveAdSlots();
+        pendingAds.delete(key);
+        savePendingAds();
+        setMemoryCache();
+        console.log('[admin] Manually activated ad for @' + handle);
+        return sendJson(req, res, 200, { ok: true, slot: slot });
+      } catch (e) {
+        return sendJson(req, res, 400, { error: 'Invalid JSON' });
+      }
+    });
+    return;
+  }
+
+  // ── Delete pending ad ───────────────────────────────────
+  if (url.pathname.startsWith('/api/admin/pending/') && req.method === 'DELETE') {
+    var secret = url.searchParams.get('secret');
+    if (!ADMIN_SECRET || secret !== ADMIN_SECRET) return sendJson(req, res, 401, { error: 'Unauthorized' });
+    var handleSlug = decodeURIComponent(url.pathname.split('/').pop()).toLowerCase();
+    if (pendingAds.has(handleSlug)) {
+      pendingAds.delete(handleSlug);
+      savePendingAds();
+      console.log('[admin] Deleted pending ad: ' + handleSlug);
+      return sendJson(req, res, 200, { ok: true, deleted: handleSlug });
+    }
+    return sendJson(req, res, 404, { error: 'Not found' });
   }
 
   // Handle OPTIONS for admin endpoints
@@ -2192,9 +2823,10 @@ async function start() {
   await initDb();
   preloadStatic();
 
-  // Load ad slots + pending ads
+  // Load ad slots + pending ads + expired ads
   loadAdSlots();
   loadPendingAds();
+  loadExpiredAds();
 
   // Load TrustMRR data from cache, then sync fresh
   loadTrustMrrData();
